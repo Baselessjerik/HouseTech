@@ -1,0 +1,60 @@
+2026-10-02 12:00:41.620: [INFO] CurrentProfilePath: C:\Users\Jerik\AppData\Local\Temp\flutter_tools.ccf395f1\flutter_tools_chrome_device.a4cae229\Default
+2026-10-02 12:00:41.620: [INFO] Profiles total count: 1
+2026-10-02 12:00:41.620: [INFO] Profile: name=Perfil 1 path=C:\Users\Jerik\AppData\Local\Temp\flutter_tools.ccf395f1\flutter_tools_chrome_device.a4cae229\Default lastActive=null
+2026-10-02 12:00:41.620: [INFO] LastUsedProfileDir: C:\Users\Jerik\AppData\Local\Temp\flutter_tools.ccf395f1\flutter_tools_chrome_device.a4cae229\Default
+2026-10-02 12:00:41.620: [INFO] VisibilityChanged: 0
+2026-10-02 12:00:41.770: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 0
+2026-10-02 12:00:41.772: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 0
+2026-10-02 12:00:41.774: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 0
+2026-10-02 12:00:41.776: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 0
+2026-10-02 12:00:41.778: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 0
+2026-10-02 12:00:41.780: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 0
+2026-10-02 12:00:41.782: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 0
+2026-10-02 12:00:41.784: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 0
+2026-10-02 12:00:41.786: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 0
+2026-10-02 12:00:41.788: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 0
+2026-10-02 12:00:41.810: [INFO] OnDoneLoading sync enabled: 0
+2026-10-02 12:00:41.810: [INFO] BookmarkModelLoaded, ids_reassigned: 0
+2026-10-02 12:00:41.810: [INFO] BookmarksLoadDropped droppedNodes=0
+2026-10-02 12:00:41.810: [INFO] BookmarksSnapshot Startup total=0 bar=0 other=0 mobile=0 showBar=0 showBarNTP=1
+2026-10-02 12:00:41.817: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 0
+2026-10-02 12:00:46.862: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 0
+2026-10-02 12:00:46.882: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 3
+2026-10-02 12:00:46.902: [INFO] Primary account changed.
+2026-10-02 12:00:46.902: [INFO] OnPrimaryAccountChanged PrimaryAccountChangeEvent::Type::kSet
+2026-10-02 12:00:46.922: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 3
+2026-10-02 12:00:46.964: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 3
+2026-10-02 12:01:02.299: [INFO] BookmarkNodeAdded, ABU: 0
+2026-10-02 12:01:02.299: [INFO] BookmarkNodeAdded, ABU: 0
+2026-10-02 12:01:02.300: [INFO] BookmarkNodeAdded, ABU: 0
+2026-10-02 12:01:02.300: [INFO] BookmarkNodeAdded, ABU: 0
+2026-10-02 12:01:02.300: [INFO] BookmarkNodeAdded, ABU: 0
+2026-10-02 12:01:02.301: [INFO] BookmarkNodeAdded, ABU: 0
+2026-10-02 12:01:02.301: [INFO] BookmarkNodeAdded, ABU: 0
+2026-10-02 12:01:02.315: [INFO] BookmarkBarPrefChanged showBar=0 showBarNTP=1
+2026-10-02 12:01:24.854: [INFO] Sync initialization duration: 37519ms
+2026-10-02 12:09:46.101: [INFO] BookmarksSnapshot Shutdown total=7 bar=4 other=0 mobile=3 showBar=0 showBarNTP=1
+2026-10-02 12:29:10.215: [INFO] CurrentProfilePath: C:\Users\Jerik\AppData\Local\Temp\flutter_tools.14b793ef\flutter_tools_chrome_device.3dbb92d1\Default
+2026-10-02 12:29:10.215: [INFO] Profiles total count: 1
+2026-10-02 12:29:10.215: [INFO] Profile: name=Perfil 1 path=C:\Users\Jerik\AppData\Local\Temp\flutter_tools.14b793ef\flutter_tools_chrome_device.3dbb92d1\Default lastActive=null
+2026-10-02 12:29:10.215: [INFO] LastUsedProfileDir: C:\Users\Jerik\AppData\Local\Temp\flutter_tools.14b793ef\flutter_tools_chrome_device.3dbb92d1\Default
+2026-10-02 12:29:10.215: [INFO] VisibilityChanged: 0
+2026-10-02 12:29:10.301: [INFO] OnDoneLoading sync enabled: 1
+2026-10-02 12:29:10.301: [INFO] BookmarkModelLoaded, ids_reassigned: 0
+2026-10-02 12:29:10.301: [INFO] BookmarksLoadDropped droppedNodes=0
+2026-10-02 12:29:10.301: [INFO] BookmarksSnapshot Startup total=7 bar=4 other=0 mobile=3 showBar=0 showBarNTP=1
+2026-10-02 12:29:21.884: [INFO] Sync initialization duration: 1727ms
+2026-10-02 12:31:59.735: [INFO] BookmarksSnapshot Shutdown total=7 bar=4 other=0 mobile=3 showBar=0 showBarNTP=1
+2026-10-02 12:44:36.410: [INFO] CurrentProfilePath: C:\Users\Jerik\AppData\Local\Temp\flutter_tools.f5bc39f2\flutter_tools_chrome_device.10796d09\Default
+2026-10-02 12:44:36.410: [INFO] Profiles total count: 1
+2026-10-02 12:44:36.410: [INFO] Profile: name=Perfil 1 path=C:\Users\Jerik\AppData\Local\Temp\flutter_tools.f5bc39f2\flutter_tools_chrome_device.10796d09\Default lastActive=null
+2026-10-02 12:44:36.410: [INFO] LastUsedProfileDir: C:\Users\Jerik\AppData\Local\Temp\flutter_tools.f5bc39f2\flutter_tools_chrome_device.10796d09\Default
+2026-10-02 12:44:36.410: [INFO] VisibilityChanged: 0
+2026-10-02 12:44:36.506: [INFO] OnDoneLoading sync enabled: 0
+2026-10-02 12:44:36.506: [INFO] BookmarkModelLoaded, ids_reassigned: 0
+2026-10-02 12:44:36.506: [INFO] BookmarksLoadDropped droppedNodes=0
+2026-10-02 12:44:36.506: [INFO] BookmarksSnapshot Startup total=7 bar=4 other=0 mobile=3 showBar=0 showBarNTP=1
+2026-10-02 12:44:40.013: [INFO] Primary account changed.
+2026-10-02 12:44:40.013: [INFO] OnPrimaryAccountChanged PrimaryAccountChangeEvent::Type::kSet
+2026-10-02 12:45:08.584: [INFO] Sync initialization duration: 32075ms
+2026-10-02 12:48:05.920: [INFO] BookmarksSnapshot Shutdown total=7 bar=4 other=0 mobile=3 showBar=0 showBarNTP=1
