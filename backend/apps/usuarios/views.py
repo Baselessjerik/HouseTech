@@ -3,6 +3,7 @@ from datetime import datetime, timezone as dt_timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
 from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
@@ -11,9 +12,12 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .models import TokenRevocado
 from .serializers import (
+    CambiarPasswordSerializer,
     LoginSerializer,
     LogoutSerializer,
+    PerfilUpdateSerializer,
     RefreshSerializer,
+    RegistroSerializer,
     UsuarioPerfilSerializer,
 )
 
@@ -51,10 +55,41 @@ class LogoutView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class MeView(generics.RetrieveAPIView):
-    """Perfil del usuario autenticado, con sus roles y permisos (para la UI de Flutter)."""
+class RegistroView(generics.CreateAPIView):
+    serializer_class = RegistroSerializer
+    permission_classes = [AllowAny]
+    authentication_classes = []
 
-    serializer_class = UsuarioPerfilSerializer
+    @extend_schema(responses={201: UsuarioPerfilSerializer})
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        usuario = serializer.save()
+        return Response(UsuarioPerfilSerializer(usuario).data, status=status.HTTP_201_CREATED)
+
+
+class MeView(generics.RetrieveUpdateAPIView):
+    http_method_names = ["get", "patch", "head", "options"]
+
+    def get_serializer_class(self):
+        return PerfilUpdateSerializer if self.request.method == "PATCH" else UsuarioPerfilSerializer
 
     def get_object(self):
         return self.request.user
+
+    @extend_schema(responses=UsuarioPerfilSerializer)
+    def patch(self, request, *args, **kwargs):
+        serializer = self.get_serializer(self.get_object(), data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        usuario = serializer.save()
+        return Response(UsuarioPerfilSerializer(usuario).data)
+
+
+class CambiarPasswordView(APIView):
+    @extend_schema(request=CambiarPasswordSerializer, responses={204: None})
+    def post(self, request):
+        serializer = CambiarPasswordSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        request.user.set_password(serializer.validated_data["password_nueva"])
+        request.user.save(update_fields=["password"])
+        return Response(status=status.HTTP_204_NO_CONTENT)

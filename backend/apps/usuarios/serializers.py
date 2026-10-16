@@ -1,3 +1,5 @@
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
@@ -7,7 +9,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.core.db import set_audit_user
 
-from .models import TokenRevocado, Usuario
+from .models import Rol, TokenRevocado, Usuario, UsuarioRol
 
 
 class UsuarioPerfilSerializer(serializers.ModelSerializer):
@@ -59,3 +61,99 @@ class RefreshSerializer(TokenRefreshSerializer):
 
 class LogoutSerializer(serializers.Serializer):
     refresh = serializers.CharField()
+
+
+class RegistroSerializer(serializers.ModelSerializer):
+    username = serializers.RegexField(
+        r"^[A-Za-z0-9._-]{3,60}$",
+        error_messages={"invalid": "Usa de 3 a 60 caracteres: letras, números, punto, guion o guion bajo."},
+    )
+    email = serializers.EmailField(max_length=150)
+    password = serializers.CharField(
+        write_only=True, trim_whitespace=False, max_length=128, style={"input_type": "password"}
+    )
+
+    class Meta:
+        model = Usuario
+        fields = [
+            "tipo_documento", "numero_documento", "nombres", "apellidos",
+            "username", "email", "telefono", "password",
+        ]
+
+    def validate_username(self, value):
+        if Usuario.objects.filter(username__iexact=value).exists():
+            raise serializers.ValidationError("Este nombre de usuario ya está en uso.")
+        return value
+
+    def validate_email(self, value):
+        if Usuario.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError("Este correo ya está registrado.")
+        return value
+
+    def validate(self, attrs):
+        if Usuario.objects.filter(
+            tipo_documento=attrs.get("tipo_documento", Usuario.TipoDocumento.CC),
+            numero_documento=attrs["numero_documento"],
+        ).exists():
+            raise serializers.ValidationError(
+                {"numero_documento": "Ya existe un usuario con este documento."}
+            )
+        try:
+            validate_password(
+                attrs["password"],
+                Usuario(username=attrs["username"], email=attrs["email"]),
+            )
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"password": list(exc.messages)})
+        return attrs
+
+    def create(self, validated_data):
+        password = validated_data.pop("password")
+        usuario = Usuario.objects.create_user(password=password, **validated_data)
+        set_audit_user(usuario.pk)
+        UsuarioRol.objects.create(usuario=usuario, rol=Rol.objects.get(codigo="RESIDENTE"))
+        return usuario
+
+
+class PerfilUpdateSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(max_length=150)
+
+    class Meta:
+        model = Usuario
+        fields = ["nombres", "apellidos", "telefono", "email"]
+
+    def validate_email(self, value):
+        if Usuario.objects.filter(email__iexact=value).exclude(pk=self.instance.pk).exists():
+            raise serializers.ValidationError("Este correo ya está registrado.")
+        return value
+
+    def update(self, instance, validated_data):
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+        instance.save(update_fields=list(validated_data))
+        return instance
+
+
+class CambiarPasswordSerializer(serializers.Serializer):
+    password_actual = serializers.CharField(
+        write_only=True, trim_whitespace=False, max_length=128, style={"input_type": "password"}
+    )
+    password_nueva = serializers.CharField(
+        write_only=True, trim_whitespace=False, max_length=128, style={"input_type": "password"}
+    )
+
+    def validate(self, attrs):
+        usuario = self.context["request"].user
+        if not usuario.check_password(attrs["password_actual"]):
+            raise serializers.ValidationError(
+                {"password_actual": "La contraseña actual es incorrecta."}
+            )
+        if attrs["password_actual"] == attrs["password_nueva"]:
+            raise serializers.ValidationError(
+                {"password_nueva": "La nueva contraseña debe ser distinta de la actual."}
+            )
+        try:
+            validate_password(attrs["password_nueva"], usuario)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"password_nueva": list(exc.messages)})
+        return attrs
