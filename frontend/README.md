@@ -99,6 +99,43 @@ Envía:
 
 El backend asigna automáticamente el rol `RESIDENTE`.
 
+### Recuperación de contraseña
+
+El enlace **¿Olvidaste tu contraseña?** abre un flujo de dos pasos que solo
+solicita el correo electrónico asociado a la cuenta:
+
+1. Solicita un código de recuperación:
+
+   ```http
+   POST /api/v1/auth/recuperar/
+   ```
+
+   ```json
+   {
+     "identificador": "ana@example.com"
+   }
+   ```
+
+2. Introduce el código de seis dígitos recibido por correo y la nueva
+   contraseña:
+
+   ```http
+   POST /api/v1/auth/restablecer/
+   ```
+
+   ```json
+   {
+     "identificador": "ana@example.com",
+     "codigo": "123456",
+     "password_nueva": "NuevaClaveSegura123!"
+   }
+   ```
+
+El código tiene una vigencia de 15 minutos. Por seguridad, la interfaz muestra
+el mismo mensaje de confirmación tanto si el correo existe como si no existe.
+En el entorno local, el backend puede mostrar el código en la consola de
+Django en lugar de enviarlo a un proveedor de correo real.
+
 ## Estructura relevante
 
 ```text
@@ -111,6 +148,7 @@ frontend/
 │   ├── features/auth/
 │   │   └── presentation/
 │   │       ├── auth_screen.dart
+│   │       ├── forgot_password_screen.dart
 │   │       └── widgets/
 │   │           ├── housetech_logo.dart
 │   │           ├── login_form.dart
@@ -143,9 +181,9 @@ Crear una compilación web:
 flutter build web
 ```
 
-El módulo de autenticación cuenta actualmente con cinco pruebas widget que
-validan el renderizado, cambio de formulario, validaciones obligatorias y
-visibilidad de la contraseña.
+El módulo de autenticación cuenta actualmente con siete pruebas widget que
+validan el renderizado, cambio de formulario, validaciones, visibilidad de la
+contraseña y navegación al flujo de recuperación.
 
 ## Estado actual
 
@@ -153,7 +191,6 @@ visibilidad de la contraseña.
 - Registro conectado al backend.
 - Tokens JWT almacenados localmente.
 - Pruebas widget implementadas.
-- La recuperación de contraseña aún no está implementada porque el backend no
-  expone ese endpoint.
+- Recuperación y restablecimiento de contraseña conectados al backend.
 - La navegación posterior al login y el consumo de los endpoints protegidos
   quedan para el siguiente módulo.
