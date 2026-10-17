@@ -6,7 +6,8 @@ import secrets
 from datetime import timedelta
 
 from django.conf import settings
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives
+from django.utils.html import escape
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
@@ -38,17 +39,37 @@ def emitir_codigo_recuperacion(usuario) -> None:
         expira_en=ahora + VIGENCIA_CODIGO,
     )
     try:
-        send_mail(
-            subject="HouseTech: código para restablecer tu contraseña",
-            message=(
-                f"Hola {usuario.nombres},\n\n"
-                f"Tu código es: {codigo}\n"
-                f"Vence en {int(VIGENCIA_CODIGO.total_seconds() // 60)} minutos. "
-                "Si no lo solicitaste, ignora este mensaje.\n"
-            ),
-            from_email=None,
-            recipient_list=[usuario.email],
+        asunto = "HouseTech: verifica tu identidad para recuperar tu cuenta"
+        mensaje = (
+            f"Hola {usuario.nombres},\n\n"
+            "Recibimos una solicitud para recuperar el acceso a tu cuenta de HouseTech.\n\n"
+            f"Tu código de verificación es: {codigo}\n\n"
+            f"Este código vence en {int(VIGENCIA_CODIGO.total_seconds() // 60)} minutos. "
+            "Si no solicitaste este cambio, puedes ignorar este mensaje.\n\n"
+            "Equipo HouseTech"
         )
+        mensaje_html = (
+            "<div style=\"font-family:Arial,sans-serif;color:#263238;line-height:1.5\">"
+            f"<h2 style=\"color:#2446b8\">Recupera tu acceso a HouseTech</h2>"
+            f"<p>Hola {escape(usuario.nombres)},</p>"
+            "<p>Recibimos una solicitud para recuperar el acceso a tu cuenta.</p>"
+            "<p>Usa este código de verificación:</p>"
+            "<p style=\"font-size:28px;letter-spacing:6px;font-weight:700;"
+            "color:#2446b8;margin:20px 0\">"
+            f"{codigo}</p>"
+            f"<p>El código vence en {int(VIGENCIA_CODIGO.total_seconds() // 60)} minutos.</p>"
+            "<p>Si no solicitaste este cambio, puedes ignorar este mensaje.</p>"
+            "<p>Equipo HouseTech</p>"
+            "</div>"
+        )
+        correo = EmailMultiAlternatives(
+            subject=asunto,
+            body=mensaje,
+            from_email=None,
+            to=[usuario.email],
+        )
+        correo.attach_alternative(mensaje_html, "text/html")
+        correo.send()
     except Exception:  # un fallo de SMTP no debe revelar si la cuenta existe
         logger.exception("No se pudo enviar el correo de recuperación (usuario %s)", usuario.pk)
 

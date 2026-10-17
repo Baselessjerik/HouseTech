@@ -35,6 +35,21 @@ def test_solicitar_envia_codigo_por_correo(client, usuario, mailoutbox):
     assert len(codigo) == 6
 
 
+def test_correo_de_recuperacion_tiene_mensaje_reformulado_y_codigo_en_negrita(
+    client, usuario, mailoutbox
+):
+    codigo = pedir_codigo(client, mailoutbox)
+    correo = mailoutbox[0]
+    assert correo.subject == "HouseTech: verifica tu identidad para recuperar tu cuenta"
+    assert "Recibimos una solicitud para recuperar el acceso" in correo.body
+    assert codigo in correo.body
+    assert correo.alternatives
+    html = correo.alternatives[0][0]
+    assert "<strong>" not in html
+    assert f"font-weight:700" in html
+    assert f">{codigo}</p>" in html
+
+
 def test_solicitar_no_revela_si_la_cuenta_existe(client, usuario, mailoutbox):
     existente = client.post(RECUPERAR, {"identificador": "ana"}, format="json")
     inexistente = client.post(RECUPERAR, {"identificador": "nadie@example.com"}, format="json")
