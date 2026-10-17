@@ -43,7 +43,8 @@ Primero inicia el backend desde la raíz del repositorio:
 docker compose up -d --build
 ```
 
-La API debe responder en `http://127.0.0.1:8000`. La configuración está en
+La API responde en `http://127.0.0.1:8000` y el frontend Dockerizado en
+`http://127.0.0.1:8080`. La configuración de la API está en
 [api_config.dart](./lib/config/api_config.dart).
 
 Después, desde `frontend`:
@@ -56,6 +57,26 @@ También se puede usar Edge:
 
 ```powershell
 flutter run -d edge
+```
+
+### Ejecutar todo con Docker
+
+Desde la raíz del repositorio:
+
+```powershell
+docker compose up -d --build
+```
+
+Esto inicia PostgreSQL, el backend Django y el frontend Flutter compilado y
+servido por Nginx. Abre `http://localhost:8080` para revisar la aplicación.
+
+Comandos útiles:
+
+```powershell
+docker compose ps
+docker compose logs -f frontend
+docker compose up -d --build frontend
+docker compose down
 ```
 
 Para Android emulado, `127.0.0.1` apunta al propio emulador. En ese caso usa

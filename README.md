@@ -27,6 +27,8 @@ HouseTech/
 │   ├── Dockerfile
 │   └── .env.example
 ├── frontend/                     # Cliente web y móvil Flutter
+│   ├── Dockerfile                # Compilación Flutter y servidor Nginx
+│   ├── nginx.conf                # Configuración del frontend web
 │   ├── lib/features/auth/        # Login y registro
 │   ├── lib/services/             # Comunicación con la API
 │   ├── test/                     # Pruebas widget
@@ -57,7 +59,8 @@ docker compose up -d --build
 ```
 
 El comando construye la imagen del backend, inicia PostgreSQL, espera a que la
-base de datos esté saludable, aplica las migraciones y ejecuta Django.
+base de datos esté saludable, aplica las migraciones y ejecuta Django. También
+compila y sirve el frontend Flutter mediante Nginx.
 
 ### Servicios y puertos
 
@@ -65,6 +68,7 @@ base de datos esté saludable, aplica las migraciones y ejecuta Django.
 |---|---|---|
 | `backend` | API Django en modo desarrollo | `http://localhost:8000` |
 | `db` | PostgreSQL 16 | `localhost:5432` |
+| `frontend` | Aplicación Flutter web servida por Nginx | `http://localhost:8080` |
 
 Endpoints útiles:
 
@@ -82,6 +86,7 @@ Ver logs:
 ```powershell
 docker compose logs -f backend
 docker compose logs -f db
+docker compose logs -f frontend
 ```
 
 Detener los servicios sin eliminar los datos:
@@ -208,6 +213,19 @@ Después ejecuta el cliente:
 cd frontend
 flutter pub get
 flutter run -d chrome
+```
+
+Para ejecutar backend, base de datos y frontend juntos usando Docker:
+
+```powershell
+docker compose up -d --build
+```
+
+Abre la aplicación en `http://localhost:8080`. Para reconstruir únicamente el
+frontend después de cambios:
+
+```powershell
+docker compose up -d --build frontend
 ```
 
 Comandos de validación del frontend:
