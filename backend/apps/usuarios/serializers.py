@@ -3,6 +3,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -72,7 +73,12 @@ class LoginSerializer(TokenObtainPairSerializer):
     """Acepta usuario o correo en el campo `username`. Devuelve tokens + perfil."""
 
     def validate(self, attrs):
-        data = super().validate(attrs)  # lanza 401 si credenciales inválidas o usuario inactivo
+        try:
+            data = super().validate(attrs)
+        except AuthenticationFailed:
+            raise AuthenticationFailed(
+                "El usuario, correo o contraseña no son correctos."
+            )
         set_audit_user(self.user.pk)
         self.user.last_login = timezone.now()
         self.user.save(update_fields=["last_login"])
