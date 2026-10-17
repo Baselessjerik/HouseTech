@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../config/app_colors.dart';
 import '../../../../services/auth_service.dart';
+import '../forgot_password_screen.dart';
 
 class LoginForm extends StatefulWidget {
   const LoginForm({super.key});
@@ -32,34 +33,94 @@ class _LoginFormState extends State<LoginForm> {
     setState(() => _loading = true);
     final result = await _service.login(_username.text.trim(), _password.text);
     if (mounted) setState(() => _loading = false);
-    if (mounted) _message(result['success'] == true ? '¡Bienvenido a Housetech!' : result['message'].toString(), result['success'] != true);
+    if (mounted) {
+      _message(
+        result['success'] == true
+            ? '¡Bienvenido a Housetech!'
+            : result['message'].toString(),
+        result['success'] != true,
+      );
+    }
   }
 
-  void _message(String text, bool error) => ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(text), backgroundColor: error ? Colors.redAccent : AppColors.oceanBlue),
+  void _message(String text, bool error) =>
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(text),
+          backgroundColor: error ? Colors.redAccent : AppColors.oceanBlue,
+        ),
       );
 
   @override
   Widget build(BuildContext context) => Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          TextField(controller: _username, decoration: const InputDecoration(labelText: 'Usuario o correo', prefixIcon: Icon(Icons.person_outline, color: AppColors.oceanBlue))),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _password,
-            obscureText: !_visible,
-            decoration: InputDecoration(
-              labelText: 'Contraseña',
-              prefixIcon: const Icon(Icons.lock_outline, color: AppColors.oceanBlue),
-              suffixIcon: IconButton(icon: Icon(_visible ? Icons.visibility_off : Icons.visibility), onPressed: () => setState(() => _visible = !_visible)),
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      TextField(
+        controller: _username,
+        decoration: const InputDecoration(
+          labelText: 'Usuario o correo',
+          prefixIcon: Icon(Icons.person_outline, color: AppColors.oceanBlue),
+        ),
+      ),
+      const SizedBox(height: 16),
+      TextField(
+        controller: _password,
+        obscureText: !_visible,
+        decoration: InputDecoration(
+          labelText: 'Contraseña',
+          prefixIcon: const Icon(
+            Icons.lock_outline,
+            color: AppColors.oceanBlue,
+          ),
+          suffixIcon: IconButton(
+            icon: Icon(_visible ? Icons.visibility_off : Icons.visibility),
+            onPressed: () => setState(() => _visible = !_visible),
+          ),
+        ),
+      ),
+      Align(
+        alignment: Alignment.centerRight,
+        child: TextButton(
+          onPressed: _loading
+              ? null
+              : () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const ForgotPasswordScreen(),
+                  ),
+                ),
+          child: const Text(
+            '¿Olvidaste tu contraseña?',
+            style: TextStyle(
+              color: AppColors.oceanBlue,
+              fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 20),
-          ElevatedButton(
-            onPressed: _loading ? null : _submit,
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.oceanBlue, padding: const EdgeInsets.symmetric(vertical: 16)),
-            child: _loading ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Text('Ingresar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          ),
-        ],
-      );
+        ),
+      ),
+      const SizedBox(height: 4),
+      ElevatedButton(
+        onPressed: _loading ? null : _submit,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppColors.oceanBlue,
+          padding: const EdgeInsets.symmetric(vertical: 16),
+        ),
+        child: _loading
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  color: Colors.white,
+                  strokeWidth: 2,
+                ),
+              )
+            : const Text(
+                'Ingresar',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+      ),
+    ],
+  );
 }

@@ -33,7 +33,7 @@ HouseTech/
 │   ├── lib/services/             # Comunicación con la API
 │   ├── test/                     # Pruebas widget
 │   └── pubspec.yaml              # Dependencias Flutter
-├── docker-compose.yml            # Backend Django + PostgreSQL
+├── docker-compose.yml            # Backend, frontend y PostgreSQL
 └── README.md
 ```
 
@@ -67,6 +67,7 @@ compila y sirve el frontend Flutter mediante Nginx.
 | Servicio | Descripción | Acceso |
 |---|---|---|
 | `backend` | API Django en modo desarrollo | `http://localhost:8000` |
+| `frontend` | Flutter Web servido por Nginx | `http://localhost:8080` |
 | `db` | PostgreSQL 16 | `localhost:5432` |
 | `frontend` | Aplicación Flutter web servida por Nginx | `http://localhost:8080` |
 
@@ -155,9 +156,28 @@ Variables principales:
 | `DATABASE_URL` | URL de conexión PostgreSQL |
 | `JWT_ACCESS_MINUTES` | Duración del token de acceso |
 | `JWT_REFRESH_DAYS` | Duración del token de renovación |
+| `EMAIL_BACKEND` | Backend de correo; consola o SMTP |
+| `EMAIL_HOST` | Servidor SMTP, por ejemplo `smtp.gmail.com` |
+| `EMAIL_PORT` | Puerto SMTP, normalmente `587` con TLS |
+| `EMAIL_USE_TLS` | Activa TLS para SMTP |
+| `EMAIL_HOST_USER` | Cuenta que enviará los correos |
+| `EMAIL_HOST_PASSWORD` | Contraseña de aplicación SMTP |
+| `DEFAULT_FROM_EMAIL` | Dirección visible del remitente |
 
 En Docker estas variables están definidas en
 [docker-compose.yml](./docker-compose.yml) para el entorno de desarrollo.
+Por defecto se mantiene el backend de consola. Para Gmail, copia
+[backend/.env.example](./backend/.env.example) a `backend/.env`, configura
+una contraseña de aplicación y cambia `EMAIL_BACKEND` a
+`django.core.mail.backends.smtp.EmailBackend`. Nunca subas `backend/.env` al
+repositorio.
+
+Para enviar correos reales durante las pruebas, configura una cuenta SMTP
+dedicada (por ejemplo, Gmail con una contraseña de aplicación) en
+`backend/.env`. El backend usa `EmailMultiAlternatives`: los clientes
+compatibles reciben un correo HTML con el código destacado y los demás
+reciben la versión de texto plano. Sin SMTP configurado, los mensajes se
+muestran en los logs del backend.
 
 ## Migraciones, datos demo y pruebas
 
@@ -242,12 +262,15 @@ La pantalla de autenticación utiliza:
 |---|---|
 | Inicio de sesión | `POST /api/v1/auth/login/` |
 | Registro | `POST /api/v1/auth/registro/` |
+| Solicitar recuperación | `POST /api/v1/auth/recuperar/` |
+| Validar código | `POST /api/v1/auth/validar-codigo/` |
+| Restablecer contraseña | `POST /api/v1/auth/restablecer/` |
 
 El frontend guarda los tokens JWT con `flutter_secure_storage`. Para Android
 emulado debe usarse `10.0.2.2:8000` en lugar de `127.0.0.1:8000`; en un
 dispositivo físico debe configurarse la IP local del equipo que ejecuta Docker.
 
-El frontend tiene cinco pruebas widget en
+El frontend tiene nueve pruebas widget en
 [frontend/test/auth_screen_test.dart](./frontend/test/auth_screen_test.dart).
 
 ## Rama del módulo

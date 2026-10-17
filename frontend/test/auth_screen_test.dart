@@ -62,4 +62,39 @@ void main() {
     final visibleField = tester.widget<TextField>(find.byType(TextField).at(1));
     expect(visibleField.obscureText, isFalse);
   });
+
+  testWidgets('abre la recuperación de contraseña desde el login', (
+    tester,
+  ) async {
+    await tester.pumpWidget(buildSubject());
+
+    await tester.tap(find.text('¿Olvidaste tu contraseña?'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Recupera tu acceso'), findsOneWidget);
+    expect(find.text('Correo electrónico'), findsOneWidget);
+    expect(find.text('Enviar código'), findsOneWidget);
+  });
+
+  testWidgets('valida el correo antes de solicitar recuperación', (
+    tester,
+  ) async {
+    await tester.pumpWidget(buildSubject());
+    await tester.tap(find.text('¿Olvidaste tu contraseña?'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Enviar código'));
+    await tester.pump();
+
+    expect(find.text('Escribe un correo electrónico válido.'), findsOneWidget);
+  });
+
+  testWidgets('muestra el paso separado para validar el código',
+      (tester) async {
+    await tester.pumpWidget(buildSubject());
+    await tester.tap(find.text('¿Olvidaste tu contraseña?'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Enviar código'), findsOneWidget);
+    expect(find.text('Validar código'), findsNothing);
+  });
 }

@@ -9,7 +9,13 @@ class AuthService {
   final _storage = const FlutterSecureStorage();
 
   Future<Map<String, dynamic>> login(String username, String password) async {
-    return _post(ApiConfig.loginUrl, {'username': username, 'password': password}, saveTokens: true);
+    return _post(
+        ApiConfig.loginUrl,
+        {
+          'username': username,
+          'password': password,
+        },
+        saveTokens: true);
   }
 
   Future<Map<String, dynamic>> registrarUsuario({
@@ -34,15 +40,49 @@ class AuthService {
     });
   }
 
-  Future<Map<String, dynamic>> _post(String url, Map<String, dynamic> body, {bool saveTokens = false}) async {
+  Future<Map<String, dynamic>> solicitarRecuperacion(String email) {
+    return _post(ApiConfig.recuperarPasswordUrl, {'identificador': email});
+  }
+
+  Future<Map<String, dynamic>> restablecerPassword({
+    required String email,
+    required String codigo,
+    required String passwordNueva,
+  }) {
+    return _post(ApiConfig.restablecerPasswordUrl, {
+      'identificador': email,
+      'codigo': codigo,
+      'password_nueva': passwordNueva,
+    });
+  }
+
+  Future<Map<String, dynamic>> validarCodigoRecuperacion({
+    required String email,
+    required String codigo,
+  }) {
+    return _post(ApiConfig.validarCodigoPasswordUrl, {
+      'identificador': email,
+      'codigo': codigo,
+    });
+  }
+
+  Future<Map<String, dynamic>> _post(
+    String url,
+    Map<String, dynamic> body, {
+    bool saveTokens = false,
+  }) async {
     try {
       final response = await http.post(
         Uri.parse(url),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(body),
       );
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      if (response.statusCode == 200 || response.statusCode == 201) {
+      final data = response.body.isEmpty
+          ? <String, dynamic>{}
+          : jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode == 200 ||
+          response.statusCode == 201 ||
+          response.statusCode == 204) {
         if (saveTokens) {
           await _storage.write(key: 'access_token', value: data['access']);
           await _storage.write(key: 'refresh_token', value: data['refresh']);
@@ -51,7 +91,10 @@ class AuthService {
       }
       return {'success': false, 'message': _message(data)};
     } catch (_) {
-      return {'success': false, 'message': 'Error de conexión con el servidor.'};
+      return {
+        'success': false,
+        'message': 'Error de conexión con el servidor.',
+      };
     }
   }
 

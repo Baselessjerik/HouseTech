@@ -120,6 +120,21 @@ Envía:
 
 El backend asigna automáticamente el rol `RESIDENTE`.
 
+### Recuperación de contraseña
+
+El enlace **¿Olvidaste tu contraseña?** abre un flujo de tres pasos:
+
+1. Solicita un código mediante `POST /api/v1/auth/recuperar/`.
+2. Valida el código de seis dígitos mediante
+   `POST /api/v1/auth/validar-codigo/`.
+3. Define la nueva contraseña mediante
+   `POST /api/v1/auth/restablecer/`.
+
+El código vence en 15 minutos y solo se consume al restablecer la contraseña.
+La interfaz no revela si el correo existe. El correo enviado por SMTP incluye
+una versión HTML con el código destacado en negrita y una versión de texto
+plano. Si SMTP no está configurado, el backend muestra el mensaje en sus logs.
+
 ## Estructura relevante
 
 ```text
@@ -132,6 +147,7 @@ frontend/
 │   ├── features/auth/
 │   │   └── presentation/
 │   │       ├── auth_screen.dart
+│   │       ├── forgot_password_screen.dart
 │   │       └── widgets/
 │   │           ├── housetech_logo.dart
 │   │           ├── login_form.dart
@@ -164,9 +180,9 @@ Crear una compilación web:
 flutter build web
 ```
 
-El módulo de autenticación cuenta actualmente con cinco pruebas widget que
-validan el renderizado, cambio de formulario, validaciones obligatorias y
-visibilidad de la contraseña.
+El módulo de autenticación cuenta actualmente con nueve pruebas widget que
+validan el renderizado, formularios, validaciones, visibilidad de la contraseña
+y navegación del flujo de recuperación.
 
 ## Estado actual
 
@@ -174,7 +190,6 @@ visibilidad de la contraseña.
 - Registro conectado al backend.
 - Tokens JWT almacenados localmente.
 - Pruebas widget implementadas.
-- La recuperación de contraseña aún no está implementada porque el backend no
-  expone ese endpoint.
+- Recuperación y restablecimiento de contraseña conectados al backend.
 - La navegación posterior al login y el consumo de los endpoints protegidos
   quedan para el siguiente módulo.
