@@ -44,13 +44,17 @@ def test_login_con_correo_sin_distinguir_mayusculas(client, usuario):
 
 
 def test_login_clave_incorrecta(client, usuario):
-    assert iniciar_sesion(client, clave="mala").status_code == 401
+    response = iniciar_sesion(client, clave="mala")
+    assert response.status_code == 401
+    assert response.data["detail"] == "El usuario, correo o contraseña no son correctos."
 
 
 def test_login_usuario_inactivo(client, usuario):
     usuario.activo = False
     usuario.save()
-    assert iniciar_sesion(client).status_code == 401
+    response = iniciar_sesion(client)
+    assert response.status_code == 401
+    assert response.data["detail"] == "El usuario, correo o contraseña no son correctos."
 
 
 def test_me_requiere_token(client):
@@ -66,6 +70,60 @@ def test_me_devuelve_roles_y_permisos(client, usuario):
     assert r.data["roles"] == ["RESIDENTE"]
     assert "pqr.radicar" in r.data["permisos"]
     assert "usuarios.gestionar" not in r.data["permisos"]
+
+
+@pytest.mark.parametrize(
+    ("rol", "permitidos", "no_permitidos"),
+    [
+        (
+            "ADMIN",
+            {"usuarios.gestionar", "roles.gestionar", "reportes.ver", "auditoria.ver"},
+            set(),
+        ),
+        (
+            "RESIDENTE",
+            {"comunicados.ver", "inmuebles.consultar", "pqr.radicar", "reservas.solicitar"},
+            {"usuarios.gestionar", "pqr.gestionar", "roles.gestionar"},
+        ),
+        (
+            "RESPONSABLE_PQR",
+            {"comunicados.ver", "inmuebles.consultar", "pqr.gestionar", "pqr.radicar"},
+            {"usuarios.gestionar", "roles.gestionar", "reservas.solicitar"},
+        ),
+    ],
+)
+def test_login_y_jwt_exponen_permisos_segun_rol(
+    client, usuario, rol, permitidos, no_permitidos
+):
+    UsuarioRol.objects.create(usuario=usuario, rol=Rol.objects.get(codigo=rol))
+
+    login = iniciar_sesion(client)
+    assert login.status_code == 200
+    assert login.data["access"]
+    assert login.data["refresh"]
+
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+    perfil = client.get(ME)
+
+    assert perfil.status_code == 200
+    assert perfil.data["roles"] == [rol]
+    assert permitidos <= set(perfil.data["permisos"])
+    assert not no_permitidos.intersection(perfil.data["permisos"])
+
+
+def test_refresh_jwt_emite_un_access_token_utilizable(client, usuario):
+    tokens = iniciar_sesion(client).data
+
+    response = client.post(
+        "/api/v1/auth/refresh/",
+        {"refresh": tokens["refresh"]},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert response.data["access"]
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {response.data['access']}")
+    assert client.get(ME).status_code == 200
 
 
 def test_logout_revoca_access_y_refresh(client, usuario):
