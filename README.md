@@ -27,6 +27,10 @@ HouseTech/
 │   ├── Dockerfile
 │   └── .env.example
 ├── frontend/                     # Cliente web y móvil Flutter
+│   ├── lib/features/auth/        # Login y registro
+│   ├── lib/services/             # Comunicación con la API
+│   ├── test/                     # Pruebas widget
+│   └── pubspec.yaml              # Dependencias Flutter
 ├── docker-compose.yml            # Backend Django + PostgreSQL
 └── README.md
 ```
@@ -41,6 +45,7 @@ producción.
 
 - Docker Desktop, recomendado para ejecutar backend y base de datos.
 - O Python 3.10 o superior y PostgreSQL si se ejecuta sin Docker.
+- Flutter 3.47.6 o compatible con Dart 3.13.5 para el frontend.
 - Git.
 
 ## Ejecutar con Docker
@@ -187,14 +192,45 @@ Para Linux/macOS, el equivalente para activar el entorno es
 
 ## Frontend Flutter
 
+El frontend Flutter incluye el módulo de autenticación conectado al backend.
+Consulta la documentación específica en
+[frontend/README.md](./frontend/README.md).
+
+Desde la raíz del repositorio, inicia primero la API:
+
+```powershell
+docker compose up -d --build
+```
+
+Después ejecuta el cliente:
+
 ```powershell
 cd frontend
 flutter pub get
-flutter devices
-flutter run -d edge
+flutter run -d chrome
 ```
 
-También se puede utilizar Chrome con `flutter run -d chrome`.
+Comandos de validación del frontend:
+
+```powershell
+flutter analyze
+flutter test
+flutter build web
+```
+
+La pantalla de autenticación utiliza:
+
+| Función | Endpoint |
+|---|---|
+| Inicio de sesión | `POST /api/v1/auth/login/` |
+| Registro | `POST /api/v1/auth/registro/` |
+
+El frontend guarda los tokens JWT con `flutter_secure_storage`. Para Android
+emulado debe usarse `10.0.2.2:8000` en lugar de `127.0.0.1:8000`; en un
+dispositivo físico debe configurarse la IP local del equipo que ejecuta Docker.
+
+El frontend tiene cinco pruebas widget en
+[frontend/test/auth_screen_test.dart](./frontend/test/auth_screen_test.dart).
 
 ## Rama del módulo
 
