@@ -9,6 +9,7 @@ con conexión a la API Django del proyecto.
 - Dart SDK incluido con Flutter.
 - Docker Desktop si se utilizará el backend local.
 - Un dispositivo o navegador compatible con Flutter.
+- Para ejecutar todo con Docker: Docker Desktop con el motor Linux activo.
 
 Verificar la instalación:
 
@@ -43,7 +44,8 @@ Primero inicia el backend desde la raíz del repositorio:
 docker compose up -d --build
 ```
 
-La API debe responder en `http://127.0.0.1:8000`. La configuración está en
+Con Docker, el frontend compilado queda disponible en
+`http://localhost:8080` y la API responde en `http://127.0.0.1:8000`. La configuración está en
 [api_config.dart](./lib/config/api_config.dart).
 
 Después, desde `frontend`:
@@ -139,10 +141,12 @@ solicita el correo electrónico asociado a la cuenta:
    }
    ```
 
-El código tiene una vigencia de 15 minutos. Por seguridad, la interfaz muestra
+El código tiene una vigencia de 15 minutos. La interfaz muestra
 el mismo mensaje de confirmación tanto si el correo existe como si no existe.
-En el entorno local, el backend puede mostrar el código en la consola de
-Django en lugar de enviarlo a un proveedor de correo real.
+El correo HTML muestra el código destacado en negrita; también se incluye una
+versión de texto plano. En desarrollo, el envío se configura mediante SMTP en
+`backend/.env`; si no hay SMTP configurado, el backend muestra el mensaje en
+los logs de Django.
 
 ## Estructura relevante
 
@@ -189,7 +193,7 @@ Crear una compilación web:
 flutter build web
 ```
 
-El módulo de autenticación cuenta actualmente con siete pruebas widget que
+El módulo de autenticación cuenta actualmente con nueve pruebas widget que
 validan el renderizado, cambio de formulario, validaciones, visibilidad de la
 contraseña y navegación al flujo de recuperación.
 
