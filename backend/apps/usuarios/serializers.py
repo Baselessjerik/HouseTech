@@ -180,6 +180,21 @@ class SolicitarRecuperacionSerializer(serializers.Serializer):
     identificador = serializers.CharField(max_length=150, help_text="Correo o nombre de usuario")
 
 
+class ValidarCodigoRecuperacionSerializer(serializers.Serializer):
+    identificador = serializers.CharField(max_length=150)
+    codigo = serializers.RegexField(r"^\d{6}$", error_messages={"invalid": "El código tiene 6 dígitos."})
+
+    def validate(self, attrs):
+        try:
+            usuario = Usuario.objects.get_by_natural_key(attrs["identificador"])
+        except Usuario.DoesNotExist:
+            usuario = None
+        registro = obtener_codigo_vigente(usuario, attrs["codigo"]) if usuario and usuario.activo else None
+        if registro is None:
+            raise serializers.ValidationError({"codigo": "Código inválido o vencido."})
+        return attrs
+
+
 class RestablecerPasswordSerializer(serializers.Serializer):
     identificador = serializers.CharField(max_length=150)
     codigo = serializers.RegexField(r"^\d{6}$", error_messages={"invalid": "El código tiene 6 dígitos."})

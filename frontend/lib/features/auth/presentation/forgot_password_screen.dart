@@ -17,6 +17,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final _confirmPasswordController = TextEditingController();
   final _service = AuthService();
   bool _codeSent = false;
+  bool _codeValidated = false;
   bool _loading = false;
   bool _newPasswordVisible = false;
 
@@ -42,9 +43,15 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     setState(() => _loading = false);
 
     if (result['success'] == true) {
-      setState(() => _codeSent = true);
+      setState(() {
+        _codeSent = true;
+        _codeValidated = false;
+      });
       _message('Si el correo existe, recibirás un código para continuar.');
     } else {
+      if (result['message'].toString().contains('Código inválido')) {
+        setState(() => _codeValidated = false);
+      }
       _message(result['message'].toString(), error: true);
     }
   }
@@ -58,6 +65,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       _message('El código debe tener 6 dígitos.', error: true);
       return;
     }
+
     if (password.isEmpty || confirmation.isEmpty) {
       _message('Completa los campos de contraseña.', error: true);
       return;
@@ -107,6 +115,28 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     }
   }
 
+  Future<void> _validateCode() async {
+    final code = _codeController.text.trim();
+    if (!RegExp(r'^\d{6}$').hasMatch(code)) {
+      _message('El código debe tener 6 dígitos.', error: true);
+      return;
+    }
+
+    setState(() => _loading = true);
+    final result = await _service.validarCodigoRecuperacion(
+      email: _emailController.text.trim(),
+      codigo: code,
+    );
+    if (!mounted) return;
+    setState(() => _loading = false);
+
+    if (result['success'] == true) {
+      setState(() => _codeValidated = true);
+    } else {
+      _message(result['message'].toString(), error: true);
+    }
+  }
+
   bool _isEmail(String value) {
     return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(value);
   }
@@ -147,7 +177,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
             ),
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 250),
-              child: _codeSent ? _resetForm() : _emailForm(),
+              child: !_codeSent
+                  ? _emailForm()
+                  : _codeValidated
+                      ? _passwordForm()
+                      : _codeForm(),
             ),
           ),
         ),
@@ -196,9 +230,56 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     );
   }
 
-  Widget _resetForm() {
+  Widget _codeForm() {
     return Column(
-      key: const ValueKey('reset-form'),
+      key: const ValueKey('code-form'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Icon(
+          Icons.lock_reset_rounded,
+          color: AppColors.oceanBlue,
+          size: 52,
+        ),
+        const SizedBox(height: 16),
+        const Text(
+          'Verifica tu correo',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: AppColors.textDark,
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          'Revisa tu correo ${_emailController.text.trim()} e ingresa el código de 6 dígitos que recibiste.',
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: Colors.black54, height: 1.4),
+        ),
+        const SizedBox(height: 24),
+        TextField(
+          controller: _codeController,
+          keyboardType: TextInputType.number,
+          maxLength: 6,
+          decoration: const InputDecoration(
+            labelText: 'Código de recuperación',
+            prefixIcon: Icon(Icons.pin_outlined, color: AppColors.oceanBlue),
+            counterText: '',
+          ),
+        ),
+        const SizedBox(height: 20),
+        _actionButton('Validar código', _validateCode),
+        TextButton(
+          onPressed: _loading ? null : _sendCode,
+          child: const Text('Solicitar un código nuevo'),
+        ),
+      ],
+    );
+  }
+
+  Widget _passwordForm() {
+    return Column(
+      key: const ValueKey('password-form'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const Icon(
@@ -217,20 +298,19 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           ),
         ),
         const SizedBox(height: 10),
-        Text(
-          'Revisa tu correo ${_emailController.text.trim()} e ingresa el código de 6 dígitos.',
+        const Text(
+          'El código fue validado. Ahora define una contraseña segura para tu cuenta.',
           textAlign: TextAlign.center,
-          style: const TextStyle(color: Colors.black54, height: 1.4),
+          style: TextStyle(color: Colors.black54, height: 1.4),
         ),
         const SizedBox(height: 24),
         TextField(
           controller: _codeController,
-          keyboardType: TextInputType.number,
-          maxLength: 6,
+          readOnly: true,
           decoration: const InputDecoration(
-            labelText: 'Código de recuperación',
-            prefixIcon: Icon(Icons.pin_outlined, color: AppColors.oceanBlue),
-            counterText: '',
+            labelText: 'Código validado',
+            prefixIcon:
+                Icon(Icons.verified_outlined, color: AppColors.oceanBlue),
           ),
         ),
         const SizedBox(height: 12),
@@ -264,12 +344,20 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         const SizedBox(height: 20),
         _actionButton('Guardar nueva contraseña', _resetPassword),
         TextButton(
+          onPressed:
+              _loading ? null : () => setState(() => _codeValidated = false),
+          child: const Text('Volver a validar el código'),
+        ),
+        TextButton(
           onPressed: _loading
               ? null
               : () => setState(() {
-                  _codeSent = false;
-                  _codeController.clear();
-                }),
+                    _codeSent = false;
+                    _codeValidated = false;
+                    _codeController.clear();
+                    _newPasswordController.clear();
+                    _confirmPasswordController.clear();
+                  }),
           child: const Text('Usar otro correo'),
         ),
       ],

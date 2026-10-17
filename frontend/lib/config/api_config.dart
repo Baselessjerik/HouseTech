@@ -3,5 +3,6 @@ class ApiConfig {
   static const loginUrl = '$baseUrl/auth/login/';
   static const registroUrl = '$baseUrl/auth/registro/';
   static const recuperarPasswordUrl = '$baseUrl/auth/recuperar/';
+  static const validarCodigoPasswordUrl = '$baseUrl/auth/validar-codigo/';
   static const restablecerPasswordUrl = '$baseUrl/auth/restablecer/';
 }

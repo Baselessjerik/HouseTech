@@ -87,4 +87,14 @@ void main() {
 
     expect(find.text('Escribe un correo electrónico válido.'), findsOneWidget);
   });
+
+  testWidgets('muestra el paso separado para validar el código',
+      (tester) async {
+    await tester.pumpWidget(buildSubject());
+    await tester.tap(find.text('¿Olvidaste tu contraseña?'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Enviar código'), findsOneWidget);
+    expect(find.text('Validar código'), findsNothing);
+  });
 }

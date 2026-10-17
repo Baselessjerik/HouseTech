@@ -10,6 +10,7 @@ pytestmark = pytest.mark.django_db
 
 RECUPERAR = "/api/v1/auth/recuperar/"
 RESTABLECER = "/api/v1/auth/restablecer/"
+VALIDAR_CODIGO = "/api/v1/auth/validar-codigo/"
 LOGIN = "/api/v1/auth/login/"
 CLAVE = "Clave12345!"
 NUEVA = "Nueva12345!x"
@@ -56,6 +57,29 @@ def test_codigo_incorrecto(client, usuario, mailoutbox):
     r = restablecer(client, incorrecto)
     assert r.status_code == 400
     assert "codigo" in r.data
+
+
+def test_validar_codigo_no_cambia_la_clave_ni_consumo_el_codigo(client, usuario, mailoutbox):
+    codigo = pedir_codigo(client, mailoutbox)
+    respuesta = client.post(
+        VALIDAR_CODIGO,
+        {"identificador": "ana@example.com", "codigo": codigo},
+        format="json",
+    )
+    assert respuesta.status_code == 204
+    assert client.post(LOGIN, {"username": "ana", "password": CLAVE}, format="json").status_code == 200
+    assert restablecer(client, codigo).status_code == 204
+
+
+def test_validar_codigo_rechaza_codigo_incorrecto(client, usuario, mailoutbox):
+    codigo = pedir_codigo(client, mailoutbox)
+    incorrecto = "000000" if codigo != "000000" else "111111"
+    respuesta = client.post(
+        VALIDAR_CODIGO,
+        {"identificador": "ana@example.com", "codigo": incorrecto},
+        format="json",
+    )
+    assert respuesta.status_code == 400
 
 
 def test_codigo_vencido(client, usuario, mailoutbox):

@@ -9,10 +9,13 @@ class AuthService {
   final _storage = const FlutterSecureStorage();
 
   Future<Map<String, dynamic>> login(String username, String password) async {
-    return _post(ApiConfig.loginUrl, {
-      'username': username,
-      'password': password,
-    }, saveTokens: true);
+    return _post(
+        ApiConfig.loginUrl,
+        {
+          'username': username,
+          'password': password,
+        },
+        saveTokens: true);
   }
 
   Future<Map<String, dynamic>> registrarUsuario({
@@ -50,6 +53,16 @@ class AuthService {
       'identificador': email,
       'codigo': codigo,
       'password_nueva': passwordNueva,
+    });
+  }
+
+  Future<Map<String, dynamic>> validarCodigoRecuperacion({
+    required String email,
+    required String codigo,
+  }) {
+    return _post(ApiConfig.validarCodigoPasswordUrl, {
+      'identificador': email,
+      'codigo': codigo,
     });
   }
 

@@ -12,6 +12,7 @@ from .views import (
     RestablecerPasswordView,
     RolViewSet,
     SolicitarRecuperacionView,
+    ValidarCodigoRecuperacionView,
     UsuarioViewSet,
 )
 
@@ -30,5 +31,6 @@ urlpatterns = [
     path("auth/me/", MeView.as_view(), name="me"),
     path("auth/cambiar-password/", CambiarPasswordView.as_view(), name="cambiar-password"),
     path("auth/recuperar/", SolicitarRecuperacionView.as_view(), name="recuperar"),
+    path("auth/validar-codigo/", ValidarCodigoRecuperacionView.as_view(), name="validar-codigo"),
     path("auth/restablecer/", RestablecerPasswordView.as_view(), name="restablecer"),
 ] + router.urls

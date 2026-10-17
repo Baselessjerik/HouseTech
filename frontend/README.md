@@ -116,8 +116,16 @@ solicita el correo electrónico asociado a la cuenta:
    }
    ```
 
-2. Introduce el código de seis dígitos recibido por correo y la nueva
-   contraseña:
+2. Valida el código de seis dígitos recibido por correo:
+
+   ```http
+   POST /api/v1/auth/validar-codigo/
+   ```
+
+   La validación confirma el código sin consumirlo y habilita el formulario
+   para crear la nueva contraseña.
+
+3. Introduce la nueva contraseña:
 
    ```http
    POST /api/v1/auth/restablecer/

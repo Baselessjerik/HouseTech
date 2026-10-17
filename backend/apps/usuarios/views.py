@@ -30,6 +30,7 @@ from .serializers import (
     RestablecerPasswordSerializer,
     RolSerializer,
     SolicitarRecuperacionSerializer,
+    ValidarCodigoRecuperacionSerializer,
     UsuarioAdminCreateSerializer,
     UsuarioListaSerializer,
     UsuarioPerfilSerializer,
@@ -137,6 +138,20 @@ class SolicitarRecuperacionView(APIView):
         if usuario is not None and usuario.activo:
             emitir_codigo_recuperacion(usuario)
         return Response({"detail": "Si la cuenta existe, enviamos un código al correo registrado."})
+
+
+class ValidarCodigoRecuperacionView(APIView):
+    """Valida el código sin consumirlo para mostrar el formulario de contraseña."""
+
+    authentication_classes: list = []
+    permission_classes = [AllowAny]
+    throttle_classes = [RestablecerPasswordThrottle]
+
+    @extend_schema(request=ValidarCodigoRecuperacionSerializer, responses={204: None})
+    def post(self, request):
+        serializer = ValidarCodigoRecuperacionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class RestablecerPasswordView(APIView):
