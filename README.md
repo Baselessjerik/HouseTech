@@ -150,9 +150,21 @@ Variables principales:
 | `DATABASE_URL` | URL de conexión PostgreSQL |
 | `JWT_ACCESS_MINUTES` | Duración del token de acceso |
 | `JWT_REFRESH_DAYS` | Duración del token de renovación |
+| `EMAIL_BACKEND` | Backend de correo; consola o SMTP |
+| `EMAIL_HOST` | Servidor SMTP, por ejemplo `smtp.gmail.com` |
+| `EMAIL_PORT` | Puerto SMTP, normalmente `587` con TLS |
+| `EMAIL_USE_TLS` | Activa TLS para SMTP |
+| `EMAIL_HOST_USER` | Cuenta que enviará los correos |
+| `EMAIL_HOST_PASSWORD` | Contraseña de aplicación SMTP |
+| `DEFAULT_FROM_EMAIL` | Dirección visible del remitente |
 
 En Docker estas variables están definidas en
 [docker-compose.yml](./docker-compose.yml) para el entorno de desarrollo.
+Por defecto se mantiene el backend de consola. Para Gmail, copia
+[backend/.env.example](./backend/.env.example) a `backend/.env`, configura
+una contraseña de aplicación y cambia `EMAIL_BACKEND` a
+`django.core.mail.backends.smtp.EmailBackend`. Nunca subas `backend/.env` al
+repositorio.
 
 ## Migraciones, datos demo y pruebas
 
