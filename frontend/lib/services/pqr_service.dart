@@ -151,6 +151,35 @@ class PqrService {
     }
   }
 
+  /// Consulta el detalle actual de una PQR visible para el usuario autenticado.
+  Future<Pqr> obtenerDetallePqr(int pqrId) async {
+    final response = await _authenticatedRequest(
+      () async => http.get(
+        Uri.parse('${ApiConfig.pqrsUrl}$pqrId/'),
+        headers: await _headers(),
+      ),
+    );
+
+    if (response.statusCode != 200) {
+      final decoded = response.body.isEmpty
+          ? <String, dynamic>{}
+          : jsonDecode(utf8.decode(response.bodyBytes));
+      final mensaje = decoded is Map<String, dynamic>
+          ? _extraerError(decoded)
+          : 'No fue posible consultar la solicitud.';
+      throw Exception(mensaje);
+    }
+
+    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException(
+        'El servidor devolvió el detalle de la PQR con un formato inválido.',
+      );
+    }
+
+    return Pqr.fromJson(decoded);
+  }
+
   /// Registra una nueva PQR y obtiene el radicado emitido por el servidor.
   Future<Map<String, dynamic>> radicarPqr({
     required int tipoId,

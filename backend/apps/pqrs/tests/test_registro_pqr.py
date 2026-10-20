@@ -92,6 +92,21 @@ class TestRegistroPQR:
         assert pqr_db.solicitante == residente
         assert pqr_db.estado.codigo == "RECIBIDA"
 
+    def test_residente_consulta_estado_actual_de_su_pqr(
+        self,
+        residente_client,
+        tipo_peticion,
+    ):
+        """El detalle devuelve el estado actual de una PQR propia."""
+        pqr_id = self._crear_pqr(residente_client, tipo_peticion)
+
+        respuesta = residente_client.get(f"/api/v1/pqrs/{pqr_id}/")
+
+        assert respuesta.status_code == 200
+        assert respuesta.data["id"] == pqr_id
+        assert respuesta.data["estado_codigo"] == "RECIBIDA"
+        assert respuesta.data["estado_nombre"]
+
     def test_validacion_campos_cortos(self, residente_client, tipo_peticion):
         """Valida que no permita asuntos o descripciones vacías o muy breves."""
         payload = {

@@ -43,6 +43,41 @@ class _PqrsTableScreenState extends State<PqrsTableScreen> {
     }
   }
 
+  /// Consulta el estado más reciente antes de mostrar el detalle de una PQR.
+  Future<void> _consultarDetalle(Pqr pqr) async {
+    final pqrId = pqr.id;
+    if (pqrId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No se pudo identificar la solicitud.'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
+    try {
+      final detalle = await _service.obtenerDetallePqr(pqrId);
+      if (!mounted) return;
+
+      setState(() {
+        _pqrs = _pqrs
+            .map(
+                (solicitud) => solicitud.id == detalle.id ? detalle : solicitud)
+            .toList();
+      });
+      verDetalle(context, detalle);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No se pudo consultar el estado de la PQR: $error'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
+  }
+
   /// Abre el formulario y refresca el listado cuando se confirma una radicación.
   void _abrirFormularioRadicacion() {
     showDialog(
@@ -566,7 +601,7 @@ class _PqrsTableScreenState extends State<PqrsTableScreen> {
                                               minHeight: 36,
                                             ),
                                             onPressed: () =>
-                                                verDetalle(context, pqr),
+                                                _consultarDetalle(pqr),
                                           ),
                                           IconButton(
                                             tooltip: 'Editar',
