@@ -89,4 +89,23 @@ void main() {
     expect(find.text('Reportes'), findsOneWidget);
     expect(find.text('Auditoría'), findsOneWidget);
   });
+
+  testWidgets('conecta las opciones del Módulo 2 en el menú de AppShell',
+      (tester) async {
+    await pumpShell(
+      tester,
+      userWith(
+        const [
+          'comunicados.ver',
+          'comunicados.gestionar',
+          'bloqueos.gestionar',
+        ],
+        roles: const ['ADMIN'],
+      ),
+    );
+
+    expect(find.text('Comunicados'), findsOneWidget);
+    expect(find.text('Administrar comunicados'), findsOneWidget);
+    expect(find.text('Bloqueos'), findsOneWidget);
+  });
 }

@@ -5,6 +5,7 @@ import 'package:housetech_frontend/features/comunicados/comunicados_api.dart';
 import 'package:housetech_frontend/features/comunicados/comunicados_menu.dart';
 import 'package:housetech_frontend/features/comunicados/models/modelos.dart';
 import 'package:housetech_frontend/features/comunicados/pages/bloqueos_admin_page.dart';
+import 'package:housetech_frontend/features/comunicados/pages/comunicados_admin_page.dart';
 import 'package:housetech_frontend/features/comunicados/pages/comunicados_residente_page.dart';
 import 'package:housetech_frontend/features/comunicados/providers/comunicados_providers.dart';
 import 'package:housetech_frontend/features/comunicados/services/comunicados_service.dart';
@@ -48,6 +49,60 @@ class FakeServicio extends ComunicadosService {
         DisponibilidadAmenidad(id: 1, nombre: 'Piscina', estado: 'BLOQUEADA', motivo: 'Pintura'),
         DisponibilidadAmenidad(id: 2, nombre: 'Gimnasio', estado: 'DISPONIBLE'),
       ];
+
+  @override
+  Future<PaginaApi<Comunicado>> comunicados({int pagina = 1, String? estado, String? buscar}) async => PaginaApi(
+        resultados: const [
+          Comunicado(
+            id: 10,
+            titulo: 'Asamblea ordinaria',
+            contenido: 'Convocatoria anual en el salón social.',
+            categoriaNombre: 'Asambleas',
+            categoriaColor: '#16A34A',
+            estado: 'PUBLICADO',
+            audiencia: 'TODOS',
+          ),
+        ],
+        total: 1,
+        hayMas: false,
+      );
+
+  @override
+  Future<PaginaApi<Mantenimiento>> mantenimientos({int pagina = 1, String? estado, String? buscar}) async => PaginaApi(
+        resultados: [
+          Mantenimiento(
+            fechaInicio: DateTime.utc(2026, 10, 20, 10),
+            fechaFin: DateTime.utc(2026, 10, 20, 14),
+            id: 20,
+            amenidadId: 1,
+            amenidadNombre: 'Piscina',
+            titulo: 'Mantenimiento de filtros',
+            estado: 'PROGRAMADO',
+            estadoNombre: 'Programado',
+            responsable: 'Aquaservicios',
+            bloqueosActivos: 1,
+          ),
+        ],
+        total: 1,
+        hayMas: false,
+      );
+
+  @override
+  Future<PaginaApi<Bloqueo>> bloqueos({int pagina = 1, bool? activo, String? buscar}) async => PaginaApi(
+        resultados: [
+          Bloqueo(
+            fechaInicio: DateTime.utc(2026, 10, 21, 10),
+            fechaFin: DateTime.utc(2026, 10, 21, 14),
+            id: 30,
+            amenidadId: 1,
+            amenidadNombre: 'Piscina',
+            motivo: 'Evento de administración',
+            estado: 'PROGRAMADO',
+          ),
+        ],
+        total: 1,
+        hayMas: false,
+      );
 }
 
 Future<void> pumpPagina(WidgetTester tester, Widget pagina) async {
@@ -192,6 +247,27 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('El motivo es obligatorio'), findsOneWidget);
       expect(find.text('Selecciona la amenidad a bloquear.'), findsOneWidget);
+    });
+  });
+
+  group('pantallas administrativas del Módulo 2', () {
+    testWidgets('ComunicadosAdminPage lista comunicados y permite cambiar a Categorías', (tester) async {
+      await pumpPagina(tester, const ComunicadosAdminPage());
+      expect(find.text('Administrar comunicados'), findsOneWidget);
+      expect(find.text('Asamblea ordinaria'), findsOneWidget);
+      await tester.tap(find.text('Categorías'));
+      await tester.pumpAndSettle();
+      expect(find.text('Mantenimiento'), findsOneWidget);
+    });
+
+    testWidgets('BloqueosAdminPage muestra bloqueos y permite cambiar a Mantenimientos', (tester) async {
+      await pumpPagina(tester, const BloqueosAdminPage());
+      expect(find.text('Bloqueos y mantenimientos'), findsOneWidget);
+      expect(find.text('Motivo: Evento de administración'), findsOneWidget);
+      await tester.tap(find.text('Mantenimientos'));
+      await tester.pumpAndSettle();
+      expect(find.text('Mantenimiento de filtros'), findsOneWidget);
+      expect(find.text('Responsable: Aquaservicios'), findsOneWidget);
     });
   });
 }

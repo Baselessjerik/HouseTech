@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/app_colors.dart';
 import '../features/auth/presentation/auth_screen.dart';
+import '../features/comunicados/comunicados_menu.dart'; // MODULO-2
 import '../models/user_model.dart';
 import '../providers/auth_provider.dart';
 import '../services/auth_service.dart';
@@ -187,7 +188,9 @@ class _AppShellState extends ConsumerState<AppShell> {
     ];
     void add(String permission, String label, IconData icon) {
       if (user.tienePermiso(permission)) {
-        items.add(_MenuItem(label, icon, (_) => _ModulePreview(title: label)));
+        final paginaModulo2 = ComunicadosMenu.paginaPara(permission); // MODULO-2
+        items.add(_MenuItem(label, icon,
+            paginaModulo2 ?? (_) => _ModulePreview(title: label))); // MODULO-2
       }
     }
 
