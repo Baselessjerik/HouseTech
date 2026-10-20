@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../config/app_colors.dart';
 import '../features/auth/presentation/auth_screen.dart';
 import '../features/pqrs/presentation/pqrs_table_screen.dart';
-import '../features/pqrs/presentation/pqr_form_screen.dart';
 import '../models/user_model.dart';
 import '../providers/auth_provider.dart';
 import '../services/auth_service.dart';
