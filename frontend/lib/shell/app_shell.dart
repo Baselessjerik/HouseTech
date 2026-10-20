@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/app_colors.dart';
 import '../features/auth/presentation/auth_screen.dart';
+import '../features/pqrs/presentation/pqrs_table_screen.dart';
+import '../features/pqrs/presentation/pqr_form_screen.dart';
 import '../models/user_model.dart';
 import '../providers/auth_provider.dart';
 import '../services/auth_service.dart';
@@ -185,15 +187,26 @@ class _AppShellState extends ConsumerState<AppShell> {
       _MenuItem('Mi perfil', Icons.person_rounded,
           (user) => _ProfilePanel(user: user)),
     ];
-    void add(String permission, String label, IconData icon) {
+    void add(String permission, String label, IconData icon,
+        [Widget Function(UserModel)? customBuilder]) {
       if (user.tienePermiso(permission)) {
-        items.add(_MenuItem(label, icon, (_) => _ModulePreview(title: label)));
+        items.add(_MenuItem(
+          label,
+          icon,
+          customBuilder ?? (_) => _ModulePreview(title: label),
+        ));
       }
     }
 
     add('inmuebles.consultar', 'Inmuebles', Icons.apartment_rounded);
     add('comunicados.ver', 'Comunicados', Icons.campaign_rounded);
-    add('pqr.radicar', 'Radicar PQR', Icons.add_comment_rounded);
+    // Ubicación: frontend/lib/shell/app_shell.dart -> en _itemsFor
+    add(
+      'pqr.radicar',
+      'Mis PQRs',
+      Icons.rate_review_rounded,
+      (_) => const PqrsTableScreen(),
+    );
     add('pqr.gestionar', 'Gestionar PQR', Icons.support_agent_rounded);
     add('reservas.solicitar', 'Solicitar reserva',
         Icons.calendar_month_rounded);

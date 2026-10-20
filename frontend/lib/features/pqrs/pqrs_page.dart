@@ -7,6 +7,7 @@ import '../../widgets/empty_state.dart';
 import '../../widgets/trazabilidad.dart';
 import 'pqr_card.dart';
 
+/// Vista de tarjetas PQR con búsqueda y filtros por estado del trámite.
 class PqrsPage extends StatefulWidget {
   final List<Pqr> pqrs;
   final VoidCallback onNuevo;
@@ -17,10 +18,12 @@ class PqrsPage extends StatefulWidget {
   State<PqrsPage> createState() => _PqrsPageState();
 }
 
+/// Conserva los criterios de búsqueda mientras se renderiza el listado.
 class _PqrsPageState extends State<PqrsPage> {
   int filtro = 0;
   String q = '';
 
+  /// Filtra las solicitudes y muestra el estado vacío adecuado para el resultado.
   @override
   Widget build(BuildContext context) {
     final todas = widget.pqrs;

@@ -9,4 +9,7 @@ class ApiConfig {
   static const logoutUrl = '$baseUrl/auth/logout/';
   static const perfilUrl = '$baseUrl/auth/me/';
   static const cambiarPasswordUrl = '$baseUrl/auth/cambiar-password/';
+  static const pqrsUrl = '$baseUrl/pqrs/';
+  static const pqrsTiposUrl = '$baseUrl/pqrs/tipos/';
+  static const pqrsMisInmueblesUrl = '$baseUrl/pqrs/mis-inmuebles/';
 }

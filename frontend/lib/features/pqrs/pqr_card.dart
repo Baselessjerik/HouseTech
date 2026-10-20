@@ -5,10 +5,12 @@ import '../../widgets/app_card.dart';
 import '../../widgets/trazabilidad.dart';
 import 'pqr_detail_modal.dart';
 
+/// Tarjeta resumida que abre el detalle de una solicitud seleccionada.
 class PqrCard extends StatelessWidget {
   final Pqr p;
   const PqrCard(this.p, {super.key});
 
+  /// Resume radicado, tipo, fecha, trazabilidad y respuesta disponible.
   @override
   Widget build(BuildContext context) {
     final c = p.esQueja ? coralAlert : primaryBlue;
@@ -40,8 +42,7 @@ class PqrCard extends StatelessWidget {
                 ),
               ),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: c.withOpacity(.1),
                   borderRadius: BorderRadius.circular(8),
