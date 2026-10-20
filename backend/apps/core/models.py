@@ -62,3 +62,26 @@ class Auditoria(models.Model):
         managed = False
         db_table = "auditoria"
         ordering = ["-fecha"]
+
+
+class Notificacion(models.Model):
+    """Notificaciones transversales (reservas, bloqueos, PQR...). Se consultan por la API."""
+
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.DO_NOTHING, related_name="notificaciones"
+    )
+    tipo = models.CharField(max_length=15)  # COMUNICADO / MANTENIMIENTO / BLOQUEO / RESERVA / PQR / SISTEMA
+    titulo = models.CharField(max_length=200)
+    mensaje = models.TextField()
+    referencia_tipo = models.CharField(max_length=40, null=True, blank=True)
+    referencia_id = models.BigIntegerField(null=True, blank=True)
+    canal = models.CharField(max_length=6, default="APP")  # PUSH / EMAIL / APP
+    leida = models.BooleanField(default=False)
+    leida_en = models.DateTimeField(null=True, blank=True)
+    enviada_en = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = False
+        db_table = "notificaciones"
+        ordering = ["-created_at", "-id"]

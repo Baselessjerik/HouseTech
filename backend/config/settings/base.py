@@ -25,7 +25,8 @@ INSTALLED_APPS = [
     "apps.usuarios",
     "apps.inmuebles",
     "apps.comunicados",  # MODULO-2
-    "apps.pqrs",
+    "apps.reservas",     # MODULO-3
+    "apps.pqrs",         # MODULO-PQRS
 ]
 
 MIDDLEWARE = [

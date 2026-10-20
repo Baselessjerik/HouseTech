@@ -102,6 +102,7 @@ class BloqueoEscrituraSerializer(serializers.Serializer):
     fecha_inicio = serializers.DateTimeField()
     fecha_fin = serializers.DateTimeField()
     motivo = serializers.CharField(min_length=3, max_length=500)
+    cancelar_reservas = serializers.BooleanField(required=False, default=False, write_only=True)
 
     def validate(self, attrs):
         if self.instance is None and "amenidad" not in attrs:

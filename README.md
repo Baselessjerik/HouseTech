@@ -14,6 +14,7 @@ HouseTech/
 │   │   ├── inmuebles/            # Inmuebles y relación usuario-inmueble
 │   │   ├── usuarios/             # Usuarios, roles, permisos y autenticación (Módulo 1)
 │   │   ├── comunicados/          # Comunicados, avisos, mantenimientos, bloqueos y notificaciones (Módulo 2)
+│   │   ├── reservas/             # Amenidades, reglas, horarios, reservas y automatización (Módulo 3)
 │   │   └── pqrs/                 # Peticiones, quejas y reclamos (Módulo PQR)
 │   ├── config/
 │   │   ├── settings/
@@ -33,6 +34,7 @@ HouseTech/
 │   ├── nginx.conf                # Configuración del frontend web
 │   ├── lib/features/auth/        # Login, registro y recuperación de contraseña
 │   ├── lib/features/comunicados/ # Avisos, comunicados, categorías, mantenimientos y bloqueos (Módulo 2)
+│   ├── lib/features/reservas/    # Solicitud de reservas, disponibilidad por fecha y gestión de amenidades (Módulo 3)
 │   ├── lib/features/pqrs/        # Tabla CRUD, radicación, estados y adjuntos de PQR (Módulo PQR)
 │   ├── lib/shell/                # AppShell con menú dinámico basado en permisos
 │   ├── lib/services/             # Comunicación con la API y manejo de JWT
@@ -40,8 +42,9 @@ HouseTech/
 │   └── pubspec.yaml              # Dependencias Flutter
 ├── docs/
 │   ├── MODULO2.md                # Documentación detallada del Módulo 2
+│   ├── MODULO3.md                # Documentación detallada del Módulo 3
 │   └── MODULO_PQRS.md            # Documentación detallada del Módulo PQR
-├── docker-compose.yml            # Backend, frontend y PostgreSQL
+├── docker-compose.yml            # Backend, scheduler, frontend y PostgreSQL
 └── README.md
 ```
 
@@ -75,6 +78,7 @@ compila y sirve el frontend Flutter mediante Nginx.
 | Servicio | Descripción | Acceso |
 |---|---|---|
 | `backend` | API Django en modo desarrollo | `http://localhost:8000` |
+| `scheduler` | Worker periódico que ejecuta `procesar_reservas` cada 5 minutos | Contenedor interno |
 | `frontend` | Aplicación Flutter Web servida por Nginx | `http://localhost:8080` |
 | `db` | PostgreSQL 16 | `localhost:5432` |
 
@@ -126,6 +130,7 @@ docker compose exec backend python manage.py migrate
 docker compose exec backend python manage.py seed_demo
 docker compose exec backend python manage.py seed_modulo2
 docker compose exec backend python manage.py publicar_comunicados_programados
+docker compose exec backend python manage.py procesar_reservas
 ```
 
 Conectarse a PostgreSQL:
@@ -226,6 +231,24 @@ El Módulo 2 (documentado a detalle en [docs/MODULO2.md](./docs/MODULO2.md)) inc
 | `avisos/` | `GET` | `comunicados.ver` | Consulta de avisos publicados, vigentes y segmentados según la audiencia del usuario (`TODOS`, `ROL`, `USUARIOS`) |
 | `notificaciones/` | `GET`, `POST {id}/leer/`, `POST leer-todas/`, `GET no-leidas/conteo/` | Autenticado | Bandeja de notificaciones de comunicados, mantenimientos, bloqueos y reservas afectadas |
 | `comunicados-opciones/roles/` y `usuarios/` | `GET` | `comunicados.gestionar` | Opciones de audiencia por rol o destinatarios específicos |
+
+## Módulo 3: Gestión de Amenidades, Reservas y Reglas Operativas
+
+El Módulo 3 (documentado a detalle en [docs/MODULO3.md](./docs/MODULO3.md)) incorpora el catálogo de zonas comunes (amenidades), reglas de reserva por zona, horarios semanales de atención, disponibilidad diaria con cálculo de ventanas libres, solicitud/confirmación/rechazo/cancelación de reservas con validación mediante triggers PostgreSQL (`trg_reservas_validar`) y automatización de ciclo de vida (`procesar_reservas` / servicio `scheduler`):
+
+### Endpoints principales del Módulo 3 (`/api/v1/`)
+
+| Recurso | Métodos | Permiso requerido | Descripción |
+|---|---|---|---|
+| `amenidades/` | `GET`, `POST`, `PATCH`, `DELETE` | Autenticado / `amenidades.gestionar` | Catálogo de zonas comunes, reglas operativas (`ReglaReserva`) y horarios por día (`AmenidadHorario`) |
+| `amenidades/{id}/activar\|desactivar/` | `POST` | `amenidades.gestionar` | Activación y desactivación de amenidades con registro en `amenidades_estado_historial` |
+| `amenidades/{id}/disponibilidad/?fecha=` | `GET` | Autenticado | Horarios del día, franjas ocupadas y ventanas libres calculadas |
+| `reservas/` | `GET`, `POST` | `reservas.solicitar` / `amenidades.gestionar` | Solicitud de reservas con validación de capacidad, horario, reglas y cruces, y consulta filtrable |
+| `reservas/{id}/confirmar\|rechazar\|cancelar/` | `POST` | `amenidades.gestionar` / `reservas.solicitar` | Transiciones de estado (`SOLICITADA` → `CONFIRMADA` / `RECHAZADA`, `CANCELADA`) con notificación automática |
+| `reservas/{id}/historial/` | `GET` | Autenticado (titular o gestor) | Trazabilidad de cambios de estado generada por `trg_reservas_historial` |
+| `reservas/procesar/` | `POST` | `amenidades.gestionar` | Procesamiento bajo demanda de reservas vencidas/expiradas y recordatorios |
+| `agenda/` | `GET` | Autenticado | Agenda general de reservas activas y bloqueos |
+| `reportes/ocupacion/` y `reportes/reservas/` | `GET` | `reportes.ver` / `amenidades.gestionar` | Indicadores de ocupación, horas reservadas e histórico consolidado |
 
 ## Módulo PQR (Peticiones, Quejas y Reclamos)
 
@@ -437,6 +460,7 @@ Las pruebas automatizadas del frontend están en:
 - [frontend/test/user_model_test.dart](./frontend/test/user_model_test.dart)
 - [frontend/test/app_shell_test.dart](./frontend/test/app_shell_test.dart)
 - [frontend/test/comunicados_test.dart](./frontend/test/comunicados_test.dart)
+- [frontend/test/reservas_test.dart](./frontend/test/reservas_test.dart)
 - [frontend/test/pqr_model_test.dart](./frontend/test/pqr_model_test.dart)
 - [frontend/test/pqr_form_test.dart](./frontend/test/pqr_form_test.dart)
 - [frontend/test/pqr_adjuntos_dialog_test.dart](./frontend/test/pqr_adjuntos_dialog_test.dart)
@@ -446,6 +470,7 @@ Las pruebas automatizadas del frontend están en:
 - `main`: Rama principal con la integración de los módulos verificados.
 - `Modulo-1`: Módulo 1 (Administración, Usuarios, Roles, Permisos y Perfiles).
 - `Modulo-2`: Módulo 2 (Comunicados, Mantenimientos y Bloqueos).
+- `Modulo-3`: Módulo 3 (Amenidades, Reglas, Horarios, Reservas y Automatización).
 - `feat/modulo-pqrs`: Módulo PQR (Peticiones, Quejas, Reclamos, Estados y Adjuntos).
 
 ## Marco legal de referencia

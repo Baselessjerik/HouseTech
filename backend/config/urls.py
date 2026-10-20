@@ -6,7 +6,8 @@ urlpatterns = [
     path("api/v1/", include("apps.core.urls")),
     path("api/v1/", include("apps.usuarios.urls")),
     path("api/v1/", include("apps.comunicados.urls")),  # MODULO-2
-    path("api/v1/", include("apps.pqrs.urls")),
+    path("api/v1/", include("apps.reservas.urls")),     # MODULO-3
+    path("api/v1/", include("apps.pqrs.urls")),         # MODULO-PQRS
     # Documentación OpenAPI / Swagger
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),

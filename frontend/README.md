@@ -3,8 +3,10 @@
 Cliente Flutter de HouseTech conectado a la API Django del proyecto. Incluye el
 flujo completo de autenticación, navegación principal por permisos (`AppShell`),
 las pantallas del Módulo 2 (Comunicados, Avisos, Notificaciones, Disponibilidad,
-Mantenimientos y Bloqueos) y el Módulo PQR (radicación, gestión de estados y
-evidencias adjuntas).
+Mantenimientos y Bloqueos), las pantallas del Módulo 3 (Solicitud de reservas,
+Disponibilidad diaria por fecha y Administración de amenidades, reglas, horarios
+y ocupación) y el Módulo PQR (radicación, gestión de estados y evidencias
+adjuntas).
 
 ## Requisitos
 
@@ -134,6 +136,28 @@ permisos del usuario:
   iniciar, finalizar o cancelar mantenimientos y bloqueos temporales de
   amenidades, incluyendo confirmación cuando existen reservas en conflicto.
 
+## Módulo 3: Amenidades y Reservas de Zonas Comunes
+
+Integrado en [AppShell](./lib/shell/app_shell.dart) mediante
+[ReservasMenu](./lib/features/reservas/reservas_menu.dart) según los permisos
+del usuario:
+
+- **Solicitar reserva (`reservas.solicitar`):** abre `ReservasResidentePage`
+  para consultar el catálogo de zonas comunes activas y sus reglas, verificar
+  horarios de atención y ventanas libres por fecha, radicar solicitudes de
+  reserva indicando asistentes y notas, cancelar reservas propias y revisar el
+  historial de cambios de estado.
+- **Amenidades (`amenidades.gestionar`):** abre `AmenidadesAdminPage` con tres
+  pestañas:
+  - *Zonas comunes*: creación y edición de amenidades, configuración de reglas
+    (`ReglaReserva`) y horarios semanales (`AmenidadHorario`), y activación o
+    desactivación con motivo.
+  - *Solicitudes y reservas*: bandeja administrativa para confirmar o rechazar
+    solicitudes pendientes, cancelar reservas activas, consultar el historial y
+    ejecutar el procesamiento de reservas vencidas.
+  - *Ocupación*: métricas de reservas confirmadas, pendientes, canceladas y
+    horas reservadas por amenidad.
+
 ## Módulo PQR: Peticiones, Quejas y Reclamos
 
 Integrado en [AppShell](./lib/shell/app_shell.dart) según los permisos del
@@ -171,6 +195,7 @@ frontend/
 │   ├── features/
 │   │   ├── auth/                 # Login, registro y recuperación de contraseña
 │   │   ├── comunicados/          # Pantallas, modelos, providers y servicios del Módulo 2
+│   │   ├── reservas/             # Pantallas, modelos y servicios del Módulo 3 (Amenidades y Reservas)
 │   │   └── pqrs/                 # Tabla, formulario y gestión de adjuntos de PQR
 │   └── main.dart
 ├── test/
@@ -178,6 +203,7 @@ frontend/
 │   ├── user_model_test.dart          # Pruebas del modelo de usuario y roles
 │   ├── app_shell_test.dart           # Pruebas del menú por permisos
 │   ├── comunicados_test.dart         # Pruebas de modelos y pantallas del Módulo 2
+│   ├── reservas_test.dart            # Pruebas de modelos y pantallas del Módulo 3
 │   ├── pqr_model_test.dart           # Pruebas unitarias de modelos PQR
 │   ├── pqr_form_test.dart            # Pruebas de validación y radicación PQR
 │   └── pqr_adjuntos_dialog_test.dart # Pruebas de carga, descarga y gestión de adjuntos

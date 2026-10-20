@@ -131,7 +131,25 @@ class BloqueoViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
     def create(self, request, *args, **kwargs):
         serializer = BloqueoEscrituraSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        b = services.crear_bloqueo(serializer.validated_data, request.user, confirmar=_confirmar(request))
+        datos = dict(serializer.validated_data)
+        cancelar_reservas = datos.pop("cancelar_reservas", False)
+        if cancelar_reservas:
+            from apps.reservas import services as reservas_services
+
+            bloqueo, canceladas = reservas_services.crear_bloqueo(
+                amenidad=datos["amenidad"],
+                inicio=datos["fecha_inicio"],
+                fin=datos["fecha_fin"],
+                motivo=datos["motivo"],
+                usuario=request.user,
+                cancelar_reservas=True,
+            )
+            b = Bloqueo.objects.select_related("amenidad", "mantenimiento", "creado_por").get(pk=bloqueo.pk)
+            services._notificar_bloqueo(b, "creado")
+            resp = BloqueoSerializer(b).data
+            resp["reservas_canceladas"] = [r.pk for r in canceladas]
+            return Response(resp, status=status.HTTP_201_CREATED)
+        b = services.crear_bloqueo(datos, request.user, confirmar=_confirmar(request))
         return Response(BloqueoSerializer(b).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
@@ -178,10 +196,30 @@ class DisponibilidadView(APIView):
 
 class DisponibilidadDetalleView(APIView):
     @extend_schema(
-        parameters=[OpenApiParameter("momento", OpenApiTypes.DATETIME, description="Por defecto, ahora.")],
+        parameters=[
+            OpenApiParameter("momento", OpenApiTypes.DATETIME, description="Por defecto, ahora."),
+            OpenApiParameter("fecha", OpenApiTypes.DATE, description="Consulta franjas del día (YYYY-MM-DD)."),
+        ],
         responses=DisponibilidadSerializer,
     )
     def get(self, request, pk):
+        if "fecha" in request.query_params:
+            from apps.reservas import services as reservas_services
+            from apps.reservas.models import Amenidad
+            from apps.reservas.serializers import DisponibilidadQuerySerializer
+
+            amenidad = Amenidad.objects.filter(pk=pk).first()
+            if amenidad is None or (
+                not amenidad.activa
+                and not request.user.tiene_permiso("amenidades.gestionar")
+                and not request.user.tiene_permiso("configuracion.gestionar")
+            ):
+                raise NotFound("La amenidad no existe o no está activa.")
+            params = DisponibilidadQuerySerializer(data=request.query_params)
+            params.is_valid(raise_exception=True)
+            fecha = params.validated_data.get("fecha") or timezone.localdate()
+            return Response(reservas_services.disponibilidad_dia(amenidad, fecha))
+
         datos = services.disponibilidad(_momento(request), amenidad_id=pk)
         if not datos:
             raise NotFound("La amenidad no existe o no está activa.")
@@ -318,6 +356,11 @@ class NotificacionViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
     @extend_schema(responses={200: OpenApiTypes.OBJECT})
     @action(detail=False, methods=["get"], url_path="no-leidas/conteo")
     def conteo(self, request):
+        return Response({"no_leidas": Notificacion.objects.filter(usuario=request.user, leida=False).count()})
+
+    @extend_schema(responses={200: OpenApiTypes.OBJECT})
+    @action(detail=False, methods=["get"], url_path="resumen")
+    def resumen(self, request):
         return Response({"no_leidas": Notificacion.objects.filter(usuario=request.user, leida=False).count()})
 
 

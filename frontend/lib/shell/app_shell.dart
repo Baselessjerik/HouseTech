@@ -5,6 +5,7 @@ import '../config/app_colors.dart';
 import '../features/auth/presentation/auth_screen.dart';
 import '../features/comunicados/comunicados_menu.dart'; // MODULO-2
 import '../features/pqrs/presentation/pqrs_table_screen.dart';
+import '../features/reservas/reservas_menu.dart'; // MODULO-3
 import '../models/user_model.dart';
 import '../providers/auth_provider.dart';
 import '../services/auth_service.dart';
@@ -191,10 +192,14 @@ class _AppShellState extends ConsumerState<AppShell> {
         [Widget Function(UserModel)? customBuilder]) {
       if (user.tienePermiso(permission)) {
         final paginaModulo2 = ComunicadosMenu.paginaPara(permission); // MODULO-2
+        final paginaModulo3 = ReservasMenu.paginaPara(permission); // MODULO-3
         items.add(_MenuItem(
           label,
           icon,
-          customBuilder ?? paginaModulo2 ?? (_) => _ModulePreview(title: label),
+          customBuilder ??
+              paginaModulo2 ??
+              paginaModulo3 ??
+              (_) => _ModulePreview(title: label),
         ));
       }
     }
