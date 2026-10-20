@@ -4,10 +4,11 @@ from uuid import uuid4
 import logging
 
 from django.core.files.storage import default_storage
-from django.db import DatabaseError
+from django.db import DatabaseError, transaction
 from apps.core.models import Estado
 from apps.inmuebles.models import Inmueble, InmuebleUsuario
-from .models import PQR, PQRAdjunto, TipoPQR
+from apps.usuarios.models import Usuario
+from .models import PQR, PQRAdjunto, PQRHistorial, PQRRespuesta, TipoPQR
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,12 @@ class PQRDetalleSerializer(serializers.ModelSerializer):
     estado_nombre = serializers.CharField(source="estado.nombre", read_only=True)
     solicitante_nombre = serializers.CharField(source="solicitante.nombre_completo", read_only=True)
     inmueble_codigo = serializers.CharField(source="inmueble.codigo_interno", read_only=True, default=None)
+    responsable_id = serializers.IntegerField(read_only=True, allow_null=True)
+    responsable_nombre = serializers.CharField(
+        source="responsable.nombre_completo",
+        read_only=True,
+        allow_null=True,
+    )
 
     class Meta:
         """Describe la representación de lectura enviada a clientes PQR."""
@@ -57,9 +64,94 @@ class PQRDetalleSerializer(serializers.ModelSerializer):
             "estado_nombre",
             "solicitante_nombre",
             "inmueble_codigo",
+            "responsable_id",
+            "responsable_nombre",
             "fecha_radicacion",
             "fecha_cierre",
         ]
+
+
+class PQRRespuestaSerializer(serializers.ModelSerializer):
+    """Representa una respuesta o solución registrada para una PQR."""
+
+    responsable_nombre = serializers.CharField(
+        source="responsable.nombre_completo",
+        read_only=True,
+        allow_null=True,
+    )
+    respuesta = serializers.CharField(
+        allow_blank=False,
+        trim_whitespace=True,
+    )
+
+    class Meta:
+        """Limita los campos admitidos y devueltos por el endpoint."""
+
+        model = PQRRespuesta
+        fields = [
+            "id",
+            "respuesta",
+            "es_solucion",
+            "responsable_nombre",
+            "created_at",
+        ]
+        read_only_fields = [
+            "id",
+            "responsable_nombre",
+            "created_at",
+        ]
+
+
+class PQRHistorialSerializer(serializers.ModelSerializer):
+    """Presenta los eventos de una PQR sin permitir alterar su trazabilidad."""
+
+    estado_anterior_codigo = serializers.CharField(
+        source="estado_anterior.codigo",
+        read_only=True,
+        allow_null=True,
+    )
+    estado_nuevo_codigo = serializers.CharField(
+        source="estado_nuevo.codigo",
+        read_only=True,
+    )
+    responsable_nombre = serializers.CharField(
+        source="responsable.nombre_completo",
+        read_only=True,
+        allow_null=True,
+    )
+    usuario_nombre = serializers.CharField(
+        source="usuario.nombre_completo",
+        read_only=True,
+        allow_null=True,
+    )
+
+    class Meta:
+        """Expone los datos necesarios para leer la secuencia de eventos."""
+
+        model = PQRHistorial
+        fields = [
+            "id",
+            "estado_anterior_codigo",
+            "estado_nuevo_codigo",
+            "responsable_nombre",
+            "usuario_nombre",
+            "comentario",
+            "fecha",
+        ]
+        read_only_fields = fields
+
+
+class PQRAsignarResponsableSerializer(serializers.Serializer):
+    """Acepta solo usuarios activos con el rol activo RESPONSABLE_PQR."""
+
+    responsable_id = serializers.PrimaryKeyRelatedField(
+        source="responsable",
+        queryset=Usuario.objects.filter(
+            activo=True,
+            usuario_roles__rol__codigo="RESPONSABLE_PQR",
+            usuario_roles__rol__activo=True,
+        ).distinct(),
+    )
 
 
 class PQRTransicionEstadoSerializer(serializers.Serializer):
@@ -310,12 +402,19 @@ class PQRAdjuntoSerializer(serializers.ModelSerializer):
             default_storage.delete(ruta)
             raise
 
+        transaction.on_commit(
+            lambda: self._eliminar_archivo_anterior(ruta_anterior, instance.pk)
+        )
+
+        return instance
+
+    @staticmethod
+    def _eliminar_archivo_anterior(ruta, adjunto_id):
+        """Elimina el archivo previo solo cuando se confirma el reemplazo."""
         try:
-            default_storage.delete(ruta_anterior)
+            default_storage.delete(ruta)
         except OSError:
             logger.exception(
                 "No se pudo eliminar el archivo anterior del adjunto %s.",
-                instance.pk,
+                adjunto_id,
             )
-
-        return instance

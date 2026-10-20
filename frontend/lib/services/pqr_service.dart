@@ -63,6 +63,8 @@ class PqrService {
       'inmueble_id',
       'archivo',
       'estado_codigo',
+      'responsable_id',
+      'respuesta',
       'non_field_errors'
     ]) {
       if (data.containsKey(key)) {
@@ -210,6 +212,186 @@ class PqrService {
     }
 
     return Pqr.fromJson(decoded);
+  }
+
+  /// Lista todas las cuentas activas con rol RESPONSABLE_PQR.
+  Future<List<PqrResponsable>> obtenerResponsablesPqr() async {
+    final responsables = <PqrResponsable>[];
+    var uri = Uri.parse(ApiConfig.usuariosUrl).replace(
+      queryParameters: const {
+        'rol': 'RESPONSABLE_PQR',
+        'activo': 'true',
+      },
+    );
+
+    while (true) {
+      final response = await _authenticatedRequest(
+        () async => http.get(uri, headers: await _headers()),
+      );
+      final decoded = response.body.isEmpty
+          ? <String, dynamic>{}
+          : jsonDecode(utf8.decode(response.bodyBytes));
+
+      if (response.statusCode != 200) {
+        final mensaje = decoded is Map<String, dynamic>
+            ? _extraerError(decoded)
+            : 'No fue posible cargar los responsables de PQR.';
+        throw Exception(mensaje);
+      }
+
+      final List<dynamic> resultados;
+      if (decoded is List<dynamic>) {
+        resultados = decoded;
+      } else if (decoded is Map<String, dynamic> &&
+          decoded['results'] is List<dynamic>) {
+        resultados = decoded['results'] as List<dynamic>;
+      } else {
+        throw const FormatException(
+          'El servidor devolvió una lista de responsables con formato inválido.',
+        );
+      }
+
+      responsables.addAll(
+        resultados.map(
+          (item) => PqrResponsable.fromJson(item as Map<String, dynamic>),
+        ),
+      );
+
+      final siguiente =
+          decoded is Map<String, dynamic> ? decoded['next'] as String? : null;
+      if (siguiente == null) break;
+      uri = Uri.parse(siguiente);
+    }
+
+    return responsables;
+  }
+
+  /// Asigna o reasigna una PQR a un usuario con rol RESPONSABLE_PQR.
+  Future<Pqr> asignarResponsablePqr({
+    required int pqrId,
+    required int responsableId,
+  }) async {
+    final response = await _authenticatedRequest(
+      () async => http.patch(
+        Uri.parse('${ApiConfig.pqrsUrl}$pqrId/responsable/'),
+        headers: await _headers(),
+        body: jsonEncode({'responsable_id': responsableId}),
+      ),
+    );
+
+    final decoded = response.body.isEmpty
+        ? <String, dynamic>{}
+        : jsonDecode(utf8.decode(response.bodyBytes));
+    if (response.statusCode != 200) {
+      final mensaje = decoded is Map<String, dynamic>
+          ? _extraerError(decoded)
+          : 'No fue posible asignar el responsable de la PQR.';
+      throw Exception(mensaje);
+    }
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException(
+        'El servidor devolvió la asignación con un formato inválido.',
+      );
+    }
+
+    return Pqr.fromJson(decoded);
+  }
+
+  /// Consulta las respuestas visibles de una PQR.
+  Future<List<PqrRespuestaModel>> obtenerRespuestasPqr(int pqrId) async {
+    final response = await _authenticatedRequest(
+      () async => http.get(
+        Uri.parse('${ApiConfig.pqrsUrl}$pqrId/respuestas/'),
+        headers: await _headers(),
+      ),
+    );
+
+    final decoded = response.body.isEmpty
+        ? <dynamic>[]
+        : jsonDecode(utf8.decode(response.bodyBytes));
+    if (response.statusCode != 200) {
+      final mensaje = decoded is Map<String, dynamic>
+          ? _extraerError(decoded)
+          : 'No fue posible consultar las respuestas de la PQR.';
+      throw Exception(mensaje);
+    }
+    if (decoded is! List<dynamic>) {
+      throw const FormatException(
+        'El servidor devolvió las respuestas con un formato inválido.',
+      );
+    }
+
+    return decoded
+        .map(
+          (item) => PqrRespuestaModel.fromJson(item as Map<String, dynamic>),
+        )
+        .toList();
+  }
+
+  /// Consulta los eventos de auditoría en orden cronológico para una PQR.
+  Future<List<PqrHistorialModel>> obtenerHistorialPqr(int pqrId) async {
+    final response = await _authenticatedRequest(
+      () async => http.get(
+        Uri.parse('${ApiConfig.pqrsUrl}$pqrId/historial/'),
+        headers: await _headers(),
+      ),
+    );
+
+    final decoded = response.body.isEmpty
+        ? <dynamic>[]
+        : jsonDecode(utf8.decode(response.bodyBytes));
+    if (response.statusCode != 200) {
+      final mensaje = decoded is Map<String, dynamic>
+          ? _extraerError(decoded)
+          : 'No fue posible consultar el historial de la PQR.';
+      throw Exception(mensaje);
+    }
+    if (decoded is! List<dynamic>) {
+      throw const FormatException(
+        'El servidor devolvió el historial con un formato inválido.',
+      );
+    }
+
+    return decoded
+        .map(
+          (item) => PqrHistorialModel.fromJson(item as Map<String, dynamic>),
+        )
+        .toList();
+  }
+
+  /// Registra una respuesta o solución para una PQR.
+  Future<PqrRespuestaModel> registrarRespuestaPqr({
+    required int pqrId,
+    required String respuesta,
+    required bool esSolucion,
+  }) async {
+    final response = await _authenticatedRequest(
+      () async => http.post(
+        Uri.parse('${ApiConfig.pqrsUrl}$pqrId/respuestas/'),
+        headers: await _headers(),
+        body: jsonEncode({
+          'respuesta': respuesta.trim(),
+          'es_solucion': esSolucion,
+        }),
+      ),
+    );
+
+    final decoded = response.body.isEmpty
+        ? <String, dynamic>{}
+        : jsonDecode(utf8.decode(response.bodyBytes));
+    if (response.statusCode != 201) {
+      final mensaje = decoded is Map<String, dynamic>
+          ? _extraerError(decoded)
+          : 'No fue posible registrar la respuesta de la PQR.';
+      throw Exception(mensaje);
+    }
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException(
+        'El servidor devolvió la respuesta con un formato inválido.',
+      );
+    }
+
+    return PqrRespuestaModel.fromJson(decoded);
   }
 
   /// Registra una nueva PQR y obtiene el radicado emitido por el servidor.

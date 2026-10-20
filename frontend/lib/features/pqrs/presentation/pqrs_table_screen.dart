@@ -11,11 +11,17 @@ import 'pqr_form_screen.dart';
 class PqrsTableScreen extends StatefulWidget {
   final PqrService? service;
   final bool puedeGestionarEstados;
+  final bool puedeAsignarResponsable;
+  final int? usuarioId;
+  final bool esAdministrador;
 
   const PqrsTableScreen({
     super.key,
     this.service,
     this.puedeGestionarEstados = false,
+    this.puedeAsignarResponsable = false,
+    this.usuarioId,
+    this.esAdministrador = false,
   });
 
   @override
@@ -48,7 +54,6 @@ class _PqrsTableScreenState extends State<PqrsTableScreen> {
     }
   }
 
-  /// Consulta el estado más reciente antes de mostrar el detalle de una PQR.
   Future<void> _consultarDetalle(Pqr pqr) async {
     final pqrId = pqr.id;
     if (pqrId == null) {
@@ -71,7 +76,14 @@ class _PqrsTableScreenState extends State<PqrsTableScreen> {
                 (solicitud) => solicitud.id == detalle.id ? detalle : solicitud)
             .toList();
       });
-      verDetalle(context, detalle);
+      verDetalle(
+        context,
+        detalle,
+        service: _service,
+        puedeResponder: widget.esAdministrador ||
+            (widget.puedeGestionarEstados &&
+                detalle.responsableId == widget.usuarioId),
+      );
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -147,6 +159,36 @@ class _PqrsTableScreenState extends State<PqrsTableScreen> {
         ),
       );
     }
+  }
+
+  /// Abre el selector de responsables y actualiza la PQR al confirmar.
+  Future<void> _asignarResponsable(Pqr pqr) async {
+    if (!widget.puedeAsignarResponsable || pqr.id == null) return;
+
+    final actualizada = await showDialog<Pqr>(
+      context: context,
+      builder: (_) => _AsignarResponsableDialog(
+        pqr: pqr,
+        service: _service,
+      ),
+    );
+    if (actualizada == null || !mounted) return;
+
+    setState(() {
+      _pqrs = _pqrs
+          .map((solicitud) =>
+              solicitud.id == actualizada.id ? actualizada : solicitud)
+          .toList();
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '${actualizada.radicado} asignada a '
+          '${actualizada.responsableNombre}.',
+        ),
+        backgroundColor: okGreen,
+      ),
+    );
   }
 
   /// Abre el formulario y refresca el listado cuando se confirma una radicación.
@@ -466,11 +508,13 @@ class _PqrsTableScreenState extends State<PqrsTableScreen> {
                         const anchoTipo = 80.0;
                         const anchoPrioridad = 100.0;
                         const anchoEstado = 110.0;
-                        const anchoAcciones = 240.0;
+                        const anchoResponsable = 180.0;
+                        const anchoAcciones = 272.0;
                         const anchoBase = anchoRadicado +
                             anchoTipo +
                             anchoPrioridad +
                             anchoEstado +
+                            anchoResponsable +
                             anchoAcciones +
                             60 +
                             24;
@@ -545,6 +589,16 @@ class _PqrsTableScreenState extends State<PqrsTableScreen> {
                                       const FixedColumnWidth(anchoEstado),
                                   label: const Text(
                                     'Estado',
+                                    style:
+                                        TextStyle(fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                                DataColumn(
+                                  columnWidth: const FixedColumnWidth(
+                                    anchoResponsable,
+                                  ),
+                                  label: const Text(
+                                    'Responsable',
                                     style:
                                         TextStyle(fontWeight: FontWeight.bold),
                                   ),
@@ -637,6 +691,27 @@ class _PqrsTableScreenState extends State<PqrsTableScreen> {
                                         ],
                                       ),
                                     ),
+                                    DataCell(
+                                      Tooltip(
+                                        message: pqr.responsableNombre ??
+                                            'Sin responsable asignado',
+                                        child: Text(
+                                          pqr.responsableNombre ??
+                                              'Sin asignar',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: pqr.responsableNombre == null
+                                                ? Colors.black54
+                                                : AppColors.textDark,
+                                            fontStyle:
+                                                pqr.responsableNombre == null
+                                                    ? FontStyle.italic
+                                                    : FontStyle.normal,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
                                     // Acciones CRUD
                                     DataCell(
                                       Row(
@@ -696,6 +771,27 @@ class _PqrsTableScreenState extends State<PqrsTableScreen> {
                                               onPressed: () =>
                                                   _confirmarCambioEstado(pqr),
                                             ),
+                                          if (widget.puedeAsignarResponsable)
+                                            IconButton(
+                                              tooltip:
+                                                  pqr.responsableNombre == null
+                                                      ? 'Asignar responsable'
+                                                      : 'Cambiar responsable',
+                                              icon: const Icon(
+                                                Icons.assignment_ind_outlined,
+                                                size: 19,
+                                                color: AppColors.oceanBlue,
+                                              ),
+                                              visualDensity:
+                                                  VisualDensity.compact,
+                                              padding: EdgeInsets.zero,
+                                              constraints: const BoxConstraints(
+                                                minWidth: 32,
+                                                minHeight: 36,
+                                              ),
+                                              onPressed: () =>
+                                                  _asignarResponsable(pqr),
+                                            ),
                                           IconButton(
                                             tooltip: 'Editar',
                                             icon: const Icon(
@@ -744,3 +840,196 @@ class _PqrsTableScreenState extends State<PqrsTableScreen> {
     );
   }
 }
+
+class _AsignarResponsableDialog extends StatefulWidget {
+  final Pqr pqr;
+  final PqrService service;
+
+  const _AsignarResponsableDialog({
+    required this.pqr,
+    required this.service,
+  });
+
+  @override
+  State<_AsignarResponsableDialog> createState() =>
+      _AsignarResponsableDialogState();
+}
+
+class _AsignarResponsableDialogState extends State<_AsignarResponsableDialog> {
+  late Future<List<PqrResponsable>> _responsablesFuture;
+  int? _responsableId;
+  bool _cargandoResponsables = true;
+  bool _guardando = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _responsableId = widget.pqr.responsableId;
+    _responsablesFuture = _cargarResponsables();
+  }
+
+  Future<List<PqrResponsable>> _cargarResponsables() async {
+    try {
+      final responsables = await widget.service.obtenerResponsablesPqr();
+      if (mounted) {
+        setState(() {
+          if (_responsableId != null &&
+              !responsables
+                  .any((responsable) => responsable.id == _responsableId)) {
+            _responsableId = null;
+          }
+          _cargandoResponsables = false;
+        });
+      }
+      return responsables;
+    } catch (_) {
+      if (mounted) setState(() => _cargandoResponsables = false);
+      rethrow;
+    }
+  }
+
+  Future<void> _guardar() async {
+    final pqrId = widget.pqr.id;
+    final responsableId = _responsableId;
+    if (pqrId == null ||
+        responsableId == null ||
+        _cargandoResponsables ||
+        _guardando) {
+      return;
+    }
+
+    setState(() {
+      _guardando = true;
+      _error = null;
+    });
+
+    try {
+      final actualizada = await widget.service.asignarResponsablePqr(
+        pqrId: pqrId,
+        responsableId: responsableId,
+      );
+      if (mounted) Navigator.of(context).pop(actualizada);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _guardando = false;
+        _error = 'No fue posible asignar el responsable: $error';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(
+        widget.pqr.responsableNombre == null
+            ? 'Asignar responsable'
+            : 'Cambiar responsable',
+      ),
+      content: SizedBox(
+        width: 420,
+        child: FutureBuilder<List<PqrResponsable>>(
+          future: _responsablesFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+            if (snapshot.hasError) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('No se pudieron cargar los responsables: '
+                      '${snapshot.error}'),
+                  TextButton(
+                    onPressed: _guardando
+                        ? null
+                        : () => setState(() {
+                              _cargandoResponsables = true;
+                              _responsablesFuture = _cargarResponsables();
+                            }),
+                    child: const Text('Reintentar'),
+                  ),
+                ],
+              );
+            }
+
+            final responsables = snapshot.data ?? const <PqrResponsable>[];
+            if (responsables.isEmpty) {
+              return const Text(
+                'No hay usuarios activos con el rol Responsable de PQR.',
+              );
+            }
+
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Selecciona un usuario activo para ${widget.pqr.radicado}.',
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<int>(
+                  initialValue: _responsableId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Responsable PQR',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: [
+                    for (final responsable in responsables)
+                      DropdownMenuItem(
+                        value: responsable.id,
+                        child: Text(
+                          responsable.email.isEmpty
+                              ? responsable.nombreCompleto
+                              : '${responsable.nombreCompleto} '
+                                  '(${responsable.email})',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                  onChanged: _guardando
+                      ? null
+                      : (id) => setState(() => _responsableId = id),
+                ),
+                if (_error != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    _error!,
+                    style: const TextStyle(color: Colors.redAccent),
+                  ),
+                ],
+              ],
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _guardando ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed:
+              _responsableId == null || _cargandoResponsables || _guardando
+                  ? null
+                  : _guardar,
+          child: _guardando
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Guardar asignación'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Consulta el estado más reciente antes de mostrar el detalle de una PQR.

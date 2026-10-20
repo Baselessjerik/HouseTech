@@ -6,7 +6,10 @@ from .views import (
     PQRAdjuntoDownloadView,
     PQRAdjuntoListCreateView,
     PQRAdjuntoRetrieveUpdateDestroyView,
+    PQRAsignarResponsableView,
+    PQRHistorialListView,
     PQRListCreateView,
+    PQRRespuestaListCreateView,
     PQRRetrieveUpdateDestroyView,
     PQRTransicionEstadoView,
     TipoPQRListView,
@@ -30,9 +33,24 @@ urlpatterns = [
         name="pqrs-detail-update-delete",
     ),
     path(
+        "pqrs/<int:pqr_id>/historial/",
+        PQRHistorialListView.as_view(),
+        name="pqr-historial",
+    ),
+    path(
         "pqrs/<int:pk>/estado/",
         PQRTransicionEstadoView.as_view(),
         name="pqrs-transicion-estado",
+    ),
+    path(
+        "pqrs/<int:pk>/responsable/",
+        PQRAsignarResponsableView.as_view(),
+        name="pqrs-asignar-responsable",
+    ),
+    path(
+        "pqrs/<int:pqr_id>/respuestas/",
+        PQRRespuestaListCreateView.as_view(),
+        name="pqr-respuestas",
     ),
     # Gestión de metadatos y archivos asociados a cada solicitud.
     path(

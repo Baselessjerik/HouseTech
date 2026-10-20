@@ -317,7 +317,10 @@ edición normal, para mantener coherencia con el prefijo del radicado.
 | Radicar PQR mediante formulario | `POST` | `/api/v1/pqrs/` | `pqr.radicar` |
 | Consultar detalle de una PQR | `GET` | `/api/v1/pqrs/<id>/` | `pqr.radicar` |
 | Editar PQR | `PATCH` | `/api/v1/pqrs/<id>/` | `pqr.radicar` (estado Recibida) |
-| Eliminar PQR | `DELETE` | `/api/v1/pqrs/<id>/` | `pqr.radicar` (estado Recibida) |
+| Consultar historial de eventos | `GET` | `/api/v1/pqrs/<id>/historial/` | `pqr.radicar` |
+| Eliminar PQR | `DELETE` | `/api/v1/pqrs/<id>/` | `pqr.radicar` (estado Recibida); gestores pueden borrar |
+| Consultar respuestas | `GET` | `/api/v1/pqrs/<id>/respuestas/` | `pqr.radicar` |
+| Registrar respuesta | `POST` | `/api/v1/pqrs/<id>/respuestas/` | Administrador o responsable asignado |
 | Listar metadatos de adjuntos | `GET` | `/api/v1/pqrs/<id>/adjuntos/` | `pqr.radicar` |
 | Adjuntar archivo a una PQR | `POST` | `/api/v1/pqrs/<id>/adjuntos/` | `pqr.radicar` (estado Recibida) |
 | Consultar un adjunto | `GET` | `/api/v1/pqrs/<id>/adjuntos/<adjunto_id>/` | `pqr.radicar` |
@@ -329,6 +332,11 @@ Todos los endpoints requieren autenticación. Las solicitudes creadas por una
 persona residente se asocian automáticamente a su usuario. El permiso
 `pqr.gestionar` permite consultar las PQR para gestión; los residentes consultan
 sus propias solicitudes.
+El historial presenta en orden cronológico la radicación, cambios de estado,
+asignaciones, ediciones, respuestas y operaciones de adjuntos. El backend impide
+eliminar una PQR revisada a residentes. Si una PQR se elimina de forma permitida,
+la base de datos elimina también sus respuestas, adjuntos e historial; los
+archivos adjuntos se limpian del almacenamiento.
 
 Los adjuntos se cargan individualmente como `multipart/form-data`, usando el
 campo `archivo`, en estado `RECIBIDA` para residentes. Se permiten archivos PDF,
