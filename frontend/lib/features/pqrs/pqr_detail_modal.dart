@@ -4,6 +4,7 @@ import '../../models/pqr_model.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/trazabilidad.dart';
 
+/// Abre el detalle desplazable de una PQR con su historial y respuesta.
 void verDetalle(BuildContext context, Pqr p) => showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -104,7 +105,8 @@ void verDetalle(BuildContext context, Pqr p) => showModalBottomSheet(
                       ),
                       const SizedBox(height: 4),
                       Text(p.respuesta!,
-                          style: const TextStyle(fontSize: 13, color: textDark)),
+                          style:
+                              const TextStyle(fontSize: 13, color: textDark)),
                     ],
                   ),
                 ),
@@ -129,6 +131,7 @@ void verDetalle(BuildContext context, Pqr p) => showModalBottomSheet(
       ),
     );
 
+/// Representa un hito individual del historial con una entrada animada.
 class Evento extends StatelessWidget {
   final PqrEstado e;
   final String fecha;
@@ -143,6 +146,7 @@ class Evento extends StatelessWidget {
     required this.orden,
   });
 
+  /// Dibuja el marcador, la línea de continuidad y la fecha del hito.
   @override
   Widget build(BuildContext context) => TweenAnimationBuilder<double>(
         tween: Tween(begin: 0, end: 1),
@@ -189,7 +193,8 @@ class Evento extends StatelessWidget {
                       ),
                       Text(
                         fecha,
-                        style: const TextStyle(fontSize: 12, color: Colors.black54),
+                        style: const TextStyle(
+                            fontSize: 12, color: Colors.black54),
                       ),
                     ],
                   ),

@@ -13,7 +13,8 @@ HouseTech/
 │   │   ├── core/                 # Esquema SQL, auditoría y utilidades comunes
 │   │   ├── inmuebles/            # Inmuebles y relación usuario-inmueble
 │   │   ├── usuarios/             # Usuarios, roles, permisos y autenticación (Módulo 1)
-│   │   └── comunicados/          # Comunicados, avisos, mantenimientos, bloqueos y notificaciones (Módulo 2)
+│   │   ├── comunicados/          # Comunicados, avisos, mantenimientos, bloqueos y notificaciones (Módulo 2)
+│   │   └── pqrs/                 # Peticiones, quejas y reclamos (Módulo PQR)
 │   ├── config/
 │   │   ├── settings/
 │   │   │   ├── base.py           # Configuración compartida
@@ -32,12 +33,14 @@ HouseTech/
 │   ├── nginx.conf                # Configuración del frontend web
 │   ├── lib/features/auth/        # Login, registro y recuperación de contraseña
 │   ├── lib/features/comunicados/ # Avisos, comunicados, categorías, mantenimientos y bloqueos (Módulo 2)
+│   ├── lib/features/pqrs/        # Tabla CRUD, radicación, estados y adjuntos de PQR (Módulo PQR)
 │   ├── lib/shell/                # AppShell con menú dinámico basado en permisos
 │   ├── lib/services/             # Comunicación con la API y manejo de JWT
 │   ├── test/                     # Pruebas unitarias y widget
 │   └── pubspec.yaml              # Dependencias Flutter
 ├── docs/
-│   └── MODULO2.md                # Documentación detallada del Módulo 2
+│   ├── MODULO2.md                # Documentación detallada del Módulo 2
+│   └── MODULO_PQRS.md            # Documentación detallada del Módulo PQR
 ├── docker-compose.yml            # Backend, frontend y PostgreSQL
 └── README.md
 ```
@@ -224,6 +227,136 @@ El Módulo 2 (documentado a detalle en [docs/MODULO2.md](./docs/MODULO2.md)) inc
 | `notificaciones/` | `GET`, `POST {id}/leer/`, `POST leer-todas/`, `GET no-leidas/conteo/` | Autenticado | Bandeja de notificaciones de comunicados, mantenimientos, bloqueos y reservas afectadas |
 | `comunicados-opciones/roles/` y `usuarios/` | `GET` | `comunicados.gestionar` | Opciones de audiencia por rol o destinatarios específicos |
 
+## Módulo PQR (Peticiones, Quejas y Reclamos)
+
+El módulo (documentado a detalle en [docs/MODULO_PQRS.md](./docs/MODULO_PQRS.md)) permite a los residentes clasificar, radicar y consultar peticiones,
+quejas y reclamos, y a los responsables/administradores gestionar su ciclo de
+vida (`RECIBIDA` → `EN_REVISION` → `EN_PROCESO` → `ATENDIDA` → `CERRADA`). El
+flujo para crear una solicitud es:
+
+1. El formulario carga los tipos activos del catálogo desde
+   `GET /api/v1/pqrs/tipos/` y muestra Petición, Queja y Reclamo como opciones.
+   La persona debe elegir explícitamente una clasificación; el formulario no
+   selecciona una opción por defecto.
+2. El formulario valida la clasificación, el asunto (mínimo 5 caracteres) y la
+   descripción (mínimo 10 caracteres). Al enviar, muestra todos los errores
+   presentes en el mismo formulario.
+3. El cliente envía `tipo_id`, asunto, descripción y prioridad a
+   `POST /api/v1/pqrs/`. El radicado no se genera ni se acepta desde Flutter.
+4. El backend asocia la solicitud al usuario autenticado y al estado inicial del
+   proceso PQR. PostgreSQL genera el radicado a partir del prefijo del tipo, el
+   año y una secuencia compartida, en el formato `PREFIJO-AAAA-NNNNNN` (por
+   ejemplo, `PET-2026-000001`). La columna tiene una restricción única.
+5. La respuesta exitosa incluye el tipo y el radicado generado. El formulario
+   muestra ese número para confirmación y actualiza la lista de solicitudes
+   después de cerrar el mensaje de éxito.
+
+El catálogo inicial contiene los siguientes tipos:
+
+| Código | Nombre | Prefijo de radicado |
+|---|---|---|
+| `PETICION` | Petición | `PET` |
+| `QUEJA` | Queja | `QUE` |
+| `RECLAMO` | Reclamo | `REC` |
+
+Si no se puede cargar el catálogo, el formulario presenta el error y permite
+reintentar. No permite radicar sin tipos disponibles ni sin una clasificación
+seleccionada. El tipo de una PQR ya radicada no se puede cambiar mediante la
+edición normal, para mantener coherencia con el prefijo del radicado.
+
+### Endpoints del módulo PQR
+
+| Función | Método | Endpoint | Permiso requerido |
+|---|---|---|---|
+| Catálogo de tipos de PQR | `GET` | `/api/v1/pqrs/tipos/` | `pqr.radicar` |
+| Inmuebles del residente | `GET` | `/api/v1/pqrs/mis-inmuebles/` | `pqr.radicar` |
+| Listar PQR radicadas | `GET` | `/api/v1/pqrs/` | `pqr.radicar` / `pqr.gestionar` |
+| Radicar PQR mediante formulario | `POST` | `/api/v1/pqrs/` | `pqr.radicar` |
+| Consultar detalle de una PQR | `GET` | `/api/v1/pqrs/<id>/` | `pqr.radicar` |
+| Editar PQR | `PATCH` | `/api/v1/pqrs/<id>/` | `pqr.radicar` (estado Recibida) |
+| Eliminar PQR | `DELETE` | `/api/v1/pqrs/<id>/` | `pqr.radicar` (estado Recibida) |
+| Cambiar estado de una PQR | `PATCH` | `/api/v1/pqrs/<id>/estado/` | `pqr.gestionar` |
+| Listar metadatos de adjuntos | `GET` | `/api/v1/pqrs/<id>/adjuntos/` | `pqr.radicar` |
+| Adjuntar archivo a una PQR | `POST` | `/api/v1/pqrs/<id>/adjuntos/` | `pqr.radicar` (estado Recibida) |
+| Consultar un adjunto | `GET` | `/api/v1/pqrs/<id>/adjuntos/<adjunto_id>/` | `pqr.radicar` |
+| Reemplazar un adjunto | `PATCH` | `/api/v1/pqrs/<id>/adjuntos/<adjunto_id>/` | `pqr.radicar` (estado Recibida) |
+| Eliminar un adjunto | `DELETE` | `/api/v1/pqrs/<id>/adjuntos/<adjunto_id>/` | `pqr.radicar` (estado Recibida) |
+| Descargar adjunto | `GET` | `/api/v1/pqrs/<id>/adjuntos/<adjunto_id>/descargar/` | `pqr.radicar` |
+
+Todos los endpoints requieren autenticación. Las solicitudes creadas por una
+persona residente se asocian automáticamente a su usuario. El permiso
+`pqr.gestionar` permite consultar todas las PQR y gestionar sus estados; los
+residentes consultan sus propias solicitudes.
+
+Los adjuntos se cargan individualmente como `multipart/form-data`, usando el
+campo `archivo`, en estado `RECIBIDA` para residentes. Se permiten archivos PDF,
+JPG y PNG de hasta 10 MiB por archivo; el backend comprueba que la firma del
+contenido coincida con la extensión. Los archivos se guardan en el volumen
+persistente `pqr_media` y no se publican mediante una URL directa. El listado
+devuelve metadatos; para obtener el contenido se debe usar el endpoint de
+descarga autenticado. Los residentes solo pueden listar o descargar adjuntos de
+sus propias PQR; quienes tienen permiso `pqr.gestionar` pueden acceder a todas.
+Los residentes también pueden reemplazar o eliminar adjuntos mientras la PQR
+esté en estado `RECIBIDA`; las operaciones sustituyen o borran el archivo en el
+almacenamiento junto con sus metadatos. Los gestores pueden realizar estas
+operaciones sobre cualquier PQR.
+En Flutter, el formulario permite seleccionar varios archivos y los carga
+después de crear la PQR; la tabla de solicitudes ofrece una acción para revisar,
+descargar o añadir evidencias posteriormente. Si un archivo falla después de
+que la PQR ya fue creada, el formulario conserva el radicado e informa que se
+puede reintentar desde las acciones de adjuntos.
+
+Ejemplo del cuerpo para radicar una queja:
+
+```json
+{
+  "tipo_id": 2,
+  "asunto": "Ruido en zona común",
+  "descripcion": "El ruido persiste durante la noche en la zona común.",
+  "prioridad": "MEDIA"
+}
+```
+
+El `tipo_id` debe corresponder a un registro activo del catálogo. El campo
+`inmueble_id` es opcional y, cuando se envía, el backend verifica que la persona
+tenga un vínculo vigente con el inmueble o el permiso de gestión PQR. El cliente
+no debe enviar `radicado`, `solicitante` ni `estado`: el servidor determina esos
+valores.
+
+Una respuesta exitosa (`201 Created`) incluye, entre otros datos:
+
+```json
+{
+  "id": 42,
+  "radicado": "QUE-2026-000001",
+  "tipo": {
+    "id": 2,
+    "codigo": "QUEJA",
+    "nombre": "Queja",
+    "prefijo": "QUE"
+  },
+  "asunto": "Ruido en zona común",
+  "prioridad": "MEDIA",
+  "estado_codigo": "RECIBIDA"
+}
+```
+
+### Archivos principales del módulo PQR
+
+| Archivo | Responsabilidad |
+|---|---|
+| `backend/apps/pqrs/models.py` | Modelos `TipoPQR`, `PQR`, `PQRAdjunto`, `PQRRespuesta` y `PQRHistorial`. |
+| `backend/apps/pqrs/serializers.py` | Validación y creación de solicitudes, cambios de estado y adjuntos. |
+| `backend/apps/pqrs/views.py` | Vistas y permisos de la API. |
+| `backend/apps/pqrs/urls.py` | Rutas del módulo. |
+| `backend/apps/core/sql/schema.sql` | Tablas, catálogo, secuencia y triggers SQL. |
+| `frontend/lib/models/pqr_model.dart` | Modelos del catálogo, de una PQR y de sus adjuntos. |
+| `frontend/lib/services/pqr_service.dart` | Comunicación HTTP con la API PQR. |
+| `frontend/lib/services/pqr_file_saver.dart` | Guardado de descargas con implementación específica para web y otras plataformas. |
+| `frontend/lib/features/pqrs/presentation/pqr_form_screen.dart` | Selección de tipo, validación, archivos, envío y confirmación de radicación. |
+| `frontend/lib/features/pqrs/presentation/pqrs_table_screen.dart` | Listado, búsqueda, cambio de estado y acciones sobre las PQR. |
+| `frontend/lib/features/pqrs/presentation/pqr_adjuntos_dialog.dart` | Listado, carga, descarga, reemplazo y eliminación de evidencias vinculadas a una PQR. |
+
 ## Ejecución local sin Docker
 
 ```powershell
@@ -241,7 +374,7 @@ Para Linux/macOS, el equivalente para activar el entorno es
 
 ## Frontend Flutter
 
-El frontend Flutter incluye autenticación completa, menú dinámico según permisos (`AppShell`) y las vistas del Módulo 2 para residentes y administradores.
+El frontend Flutter incluye autenticación completa, menú dinámico según permisos (`AppShell`), las vistas del Módulo 2 y el módulo completo de PQR.
 Consulta la documentación específica en
 [frontend/README.md](./frontend/README.md).
 
@@ -304,12 +437,16 @@ Las pruebas automatizadas del frontend están en:
 - [frontend/test/user_model_test.dart](./frontend/test/user_model_test.dart)
 - [frontend/test/app_shell_test.dart](./frontend/test/app_shell_test.dart)
 - [frontend/test/comunicados_test.dart](./frontend/test/comunicados_test.dart)
+- [frontend/test/pqr_model_test.dart](./frontend/test/pqr_model_test.dart)
+- [frontend/test/pqr_form_test.dart](./frontend/test/pqr_form_test.dart)
+- [frontend/test/pqr_adjuntos_dialog_test.dart](./frontend/test/pqr_adjuntos_dialog_test.dart)
 
 ## Ramas del proyecto
 
 - `main`: Rama principal con la integración de los módulos verificados.
 - `Modulo-1`: Módulo 1 (Administración, Usuarios, Roles, Permisos y Perfiles).
 - `Modulo-2`: Módulo 2 (Comunicados, Mantenimientos y Bloqueos).
+- `feat/modulo-pqrs`: Módulo PQR (Peticiones, Quejas, Reclamos, Estados y Adjuntos).
 
 ## Marco legal de referencia
 

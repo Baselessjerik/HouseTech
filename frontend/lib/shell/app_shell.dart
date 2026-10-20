@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../config/app_colors.dart';
 import '../features/auth/presentation/auth_screen.dart';
 import '../features/comunicados/comunicados_menu.dart'; // MODULO-2
+import '../features/pqrs/presentation/pqrs_table_screen.dart';
 import '../models/user_model.dart';
 import '../providers/auth_provider.dart';
 import '../services/auth_service.dart';
@@ -186,18 +187,36 @@ class _AppShellState extends ConsumerState<AppShell> {
       _MenuItem('Mi perfil', Icons.person_rounded,
           (user) => _ProfilePanel(user: user)),
     ];
-    void add(String permission, String label, IconData icon) {
+    void add(String permission, String label, IconData icon,
+        [Widget Function(UserModel)? customBuilder]) {
       if (user.tienePermiso(permission)) {
         final paginaModulo2 = ComunicadosMenu.paginaPara(permission); // MODULO-2
-        items.add(_MenuItem(label, icon,
-            paginaModulo2 ?? (_) => _ModulePreview(title: label))); // MODULO-2
+        items.add(_MenuItem(
+          label,
+          icon,
+          customBuilder ?? paginaModulo2 ?? (_) => _ModulePreview(title: label),
+        ));
       }
     }
 
     add('inmuebles.consultar', 'Inmuebles', Icons.apartment_rounded);
     add('comunicados.ver', 'Comunicados', Icons.campaign_rounded);
-    add('pqr.radicar', 'Radicar PQR', Icons.add_comment_rounded);
-    add('pqr.gestionar', 'Gestionar PQR', Icons.support_agent_rounded);
+    if (user.tienePermiso('pqr.gestionar')) {
+      items.add(
+        _MenuItem(
+          'Gestionar PQR',
+          Icons.support_agent_rounded,
+          (_) => const PqrsTableScreen(puedeGestionarEstados: true),
+        ),
+      );
+    } else {
+      add(
+        'pqr.radicar',
+        'Mis PQRs',
+        Icons.rate_review_rounded,
+        (_) => const PqrsTableScreen(),
+      );
+    }
     add('reservas.solicitar', 'Solicitar reserva',
         Icons.calendar_month_rounded);
     add('usuarios.gestionar', 'Usuarios', Icons.people_alt_rounded);

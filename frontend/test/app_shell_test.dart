@@ -60,6 +60,8 @@ void main() {
     expect(find.text('Inicio'), findsNWidgets(2));
     expect(find.text('Mi perfil'), findsOneWidget);
     expect(find.text('Inmuebles'), findsOneWidget);
+    expect(find.text('Mis PQRs'), findsOneWidget);
+    expect(find.text('Gestionar PQR'), findsNothing);
     expect(find.text('Usuarios'), findsNothing);
     expect(find.text('Roles y permisos'), findsNothing);
     expect(find.text('Reportes'), findsNothing);
@@ -77,6 +79,7 @@ void main() {
           'configuracion.gestionar',
           'reportes.ver',
           'auditoria.ver',
+          'pqr.gestionar',
         ],
         roles: const ['ADMIN'],
       ),
@@ -84,6 +87,8 @@ void main() {
 
     expect(find.text('Usuarios'), findsOneWidget);
     expect(find.text('Inmuebles'), findsOneWidget);
+    expect(find.text('Gestionar PQR'), findsOneWidget);
+    expect(find.text('Mis PQRs'), findsNothing);
     expect(find.text('Roles y permisos'), findsOneWidget);
     expect(find.text('Parametrización'), findsOneWidget);
     expect(find.text('Reportes'), findsOneWidget);
