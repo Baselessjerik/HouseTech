@@ -12,7 +12,8 @@ HouseTech/
 │   ├── apps/
 │   │   ├── core/                 # Esquema SQL, auditoría y utilidades comunes
 │   │   ├── inmuebles/            # Inmuebles y relación usuario-inmueble
-│   │   └── usuarios/             # Usuarios, roles, permisos y autenticación
+│   │   ├── usuarios/             # Usuarios, roles, permisos y autenticación (Módulo 1)
+│   │   └── comunicados/          # Comunicados, avisos, mantenimientos, bloqueos y notificaciones (Módulo 2)
 │   ├── config/
 │   │   ├── settings/
 │   │   │   ├── base.py           # Configuración compartida
@@ -29,10 +30,14 @@ HouseTech/
 ├── frontend/                     # Cliente web y móvil Flutter
 │   ├── Dockerfile                # Compilación Flutter y servidor Nginx
 │   ├── nginx.conf                # Configuración del frontend web
-│   ├── lib/features/auth/        # Login y registro
-│   ├── lib/services/             # Comunicación con la API
-│   ├── test/                     # Pruebas widget
+│   ├── lib/features/auth/        # Login, registro y recuperación de contraseña
+│   ├── lib/features/comunicados/ # Avisos, comunicados, categorías, mantenimientos y bloqueos (Módulo 2)
+│   ├── lib/shell/                # AppShell con menú dinámico basado en permisos
+│   ├── lib/services/             # Comunicación con la API y manejo de JWT
+│   ├── test/                     # Pruebas unitarias y widget
 │   └── pubspec.yaml              # Dependencias Flutter
+├── docs/
+│   └── MODULO2.md                # Documentación detallada del Módulo 2
 ├── docker-compose.yml            # Backend, frontend y PostgreSQL
 └── README.md
 ```
@@ -45,7 +50,7 @@ producción.
 
 ### Requisitos
 
-- Docker Desktop, recomendado para ejecutar backend y base de datos.
+- Docker Desktop, recomendado para ejecutar backend, frontend y base de datos.
 - O Python 3.10 o superior y PostgreSQL si se ejecuta sin Docker.
 - Flutter 3.47.6 o compatible con Dart 3.13.5 para el frontend.
 - Git.
@@ -67,12 +72,12 @@ compila y sirve el frontend Flutter mediante Nginx.
 | Servicio | Descripción | Acceso |
 |---|---|---|
 | `backend` | API Django en modo desarrollo | `http://localhost:8000` |
-| `frontend` | Flutter Web servido por Nginx | `http://localhost:8080` |
+| `frontend` | Aplicación Flutter Web servida por Nginx | `http://localhost:8080` |
 | `db` | PostgreSQL 16 | `localhost:5432` |
-| `frontend` | Aplicación Flutter web servida por Nginx | `http://localhost:8080` |
 
 Endpoints útiles:
 
+- Healthcheck: `http://localhost:8000/api/v1/health/`
 - Swagger: `http://localhost:8000/api/docs/`
 - Esquema OpenAPI: `http://localhost:8000/api/schema/`
 
@@ -116,6 +121,8 @@ Ejecutar comandos de Django directamente:
 docker compose exec backend python manage.py showmigrations
 docker compose exec backend python manage.py migrate
 docker compose exec backend python manage.py seed_demo
+docker compose exec backend python manage.py seed_modulo2
+docker compose exec backend python manage.py publicar_comunicados_programados
 ```
 
 Conectarse a PostgreSQL:
@@ -163,6 +170,7 @@ Variables principales:
 | `EMAIL_HOST_USER` | Cuenta que enviará los correos |
 | `EMAIL_HOST_PASSWORD` | Contraseña de aplicación SMTP |
 | `DEFAULT_FROM_EMAIL` | Dirección visible del remitente |
+| `COMUNICADOS_NOTIFICAR_EMAIL` | Si es `true`, envía también por correo las notificaciones del Módulo 2 |
 
 En Docker estas variables están definidas en
 [docker-compose.yml](./docker-compose.yml) para el entorno de desarrollo.
@@ -192,13 +200,29 @@ Comandos habituales dentro de Docker:
 docker compose exec backend python manage.py makemigrations
 docker compose exec backend python manage.py migrate
 docker compose exec backend python manage.py seed_demo
-docker compose exec backend pip install -r requirements-dev.txt
-docker compose exec backend pytest
+docker compose exec backend python manage.py seed_modulo2
+docker compose exec -T backend pytest -q
 ```
 
-Los datos demo crean usuarios para los roles `admin`, `residente` y
-`responsable`. La clave de desarrollo que muestra el comando es
-`HouseTech2026!`; no debe reutilizarse en producción.
+- `seed_demo` crea la copropiedad base y los usuarios demo para los roles `ADMIN` (`admin`), `RESIDENTE` (`residente`) y `RESPONSABLE_PQR` (`responsable`). La clave de desarrollo inicial es `HouseTech2026!`; no debe reutilizarse en producción.
+- `seed_modulo2` crea amenidades de ejemplo (`Piscina`, `Salón social`, `Gimnasio`, `Cancha múltiple`), mantenimientos, bloqueos y comunicados en distintos estados (`PUBLICADO`, `BORRADOR`, `PROGRAMADO`).
+
+## Módulo 2: Comunicados, Mantenimientos y Bloqueos
+
+El Módulo 2 (documentado a detalle en [docs/MODULO2.md](./docs/MODULO2.md)) incorpora la gestión de comunicados residenciales, disponibilidad y bloqueos temporales de amenidades, mantenimientos programados y notificaciones internas:
+
+### Endpoints principales del Módulo 2 (`/api/v1/`)
+
+| Recurso | Métodos | Permiso requerido | Descripción |
+|---|---|---|---|
+| `mantenimientos/` | `GET`, `POST`, `PATCH`, `POST {id}/iniciar\|finalizar\|cancelar/` | `bloqueos.gestionar` | Programación y ciclo de vida de mantenimientos de zonas comunes |
+| `bloqueos/` | `GET`, `POST`, `PATCH`, `POST {id}/cancelar/` | `bloqueos.gestionar` | Bloqueos temporales de amenidades con detección de cruces (`409`) y reservas en conflicto |
+| `amenidades/disponibilidad/` | `GET` (`?momento=`) | Autenticado | Consulta en tiempo real del estado de cada amenidad (`DISPONIBLE`, `RESERVADA`, `BLOQUEADA`, `EN_MANTENIMIENTO`) |
+| `categorias-comunicado/` | `GET` / `POST`, `PATCH`, `DELETE` | `comunicados.ver` / `comunicados.gestionar` | Clasificación de avisos con etiquetas de color |
+| `comunicados/` | `GET`, `POST`, `PATCH`, `POST {id}/publicar\|programar\|archivar/`, `GET {id}/historial/` | `comunicados.gestionar` | Gestión administrativa de comunicados, programación, archivo y trazabilidad de versiones |
+| `avisos/` | `GET` | `comunicados.ver` | Consulta de avisos publicados, vigentes y segmentados según la audiencia del usuario (`TODOS`, `ROL`, `USUARIOS`) |
+| `notificaciones/` | `GET`, `POST {id}/leer/`, `POST leer-todas/`, `GET no-leidas/conteo/` | Autenticado | Bandeja de notificaciones de comunicados, mantenimientos, bloqueos y reservas afectadas |
+| `comunicados-opciones/roles/` y `usuarios/` | `GET` | `comunicados.gestionar` | Opciones de audiencia por rol o destinatarios específicos |
 
 ## Ejecución local sin Docker
 
@@ -217,7 +241,7 @@ Para Linux/macOS, el equivalente para activar el entorno es
 
 ## Frontend Flutter
 
-El frontend Flutter incluye el módulo de autenticación conectado al backend.
+El frontend Flutter incluye autenticación completa, menú dinámico según permisos (`AppShell`) y las vistas del Módulo 2 para residentes y administradores.
 Consulta la documentación específica en
 [frontend/README.md](./frontend/README.md).
 
@@ -251,16 +275,21 @@ docker compose up -d --build frontend
 Comandos de validación del frontend:
 
 ```powershell
+cd frontend
 flutter analyze
 flutter test
-flutter build web
+flutter build web --no-wasm-dry-run
 ```
 
-La pantalla de autenticación utiliza:
+Endpoints de autenticación y perfil utilizados en el frontend:
 
 | Función | Endpoint |
 |---|---|
 | Inicio de sesión | `POST /api/v1/auth/login/` |
+| Renovación de token | `POST /api/v1/auth/refresh/` |
+| Cierre de sesión | `POST /api/v1/auth/logout/` |
+| Perfil autenticado | `GET / PATCH /api/v1/auth/me/` |
+| Cambiar contraseña | `POST /api/v1/auth/cambiar-password/` |
 | Registro | `POST /api/v1/auth/registro/` |
 | Solicitar recuperación | `POST /api/v1/auth/recuperar/` |
 | Validar código | `POST /api/v1/auth/validar-codigo/` |
@@ -270,12 +299,17 @@ El frontend guarda los tokens JWT con `flutter_secure_storage`. Para Android
 emulado debe usarse `10.0.2.2:8000` en lugar de `127.0.0.1:8000`; en un
 dispositivo físico debe configurarse la IP local del equipo que ejecuta Docker.
 
-El frontend tiene nueve pruebas widget en
-[frontend/test/auth_screen_test.dart](./frontend/test/auth_screen_test.dart).
+Las pruebas automatizadas del frontend están en:
+- [frontend/test/auth_screen_test.dart](./frontend/test/auth_screen_test.dart)
+- [frontend/test/user_model_test.dart](./frontend/test/user_model_test.dart)
+- [frontend/test/app_shell_test.dart](./frontend/test/app_shell_test.dart)
+- [frontend/test/comunicados_test.dart](./frontend/test/comunicados_test.dart)
 
-## Rama del módulo
+## Ramas del proyecto
 
-La implementación del primer módulo está en la rama `Modulo-1`.
+- `main`: Rama principal con la integración de los módulos verificados.
+- `Modulo-1`: Módulo 1 (Administración, Usuarios, Roles, Permisos y Perfiles).
+- `Modulo-2`: Módulo 2 (Comunicados, Mantenimientos y Bloqueos).
 
 ## Marco legal de referencia
 

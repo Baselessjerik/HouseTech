@@ -224,3 +224,35 @@ def test_no_se_asigna_categoria_inactiva(admin_client):
     cat = admin_client.post(CATEGORIAS, {"nombre": "Vieja", "activa": False}, format="json").data
     r = admin_client.post(COMUNICADOS, {"titulo": "a", "contenido": "b", "categoria": cat["id"]}, format="json")
     assert r.status_code == 400 and "categoria" in r.data
+
+
+# --------------------------------------------------- opciones y semillas (integridad)
+def test_opciones_roles_y_busqueda_usuarios(admin_client, residente_client, residente, residente2):
+    assert residente_client.get("/api/v1/comunicados-opciones/roles/").status_code == 403
+    assert residente_client.get("/api/v1/comunicados-opciones/usuarios/").status_code == 403
+
+    r_roles = admin_client.get("/api/v1/comunicados-opciones/roles/")
+    assert r_roles.status_code == 200
+    codigos = {x["codigo"] for x in r_roles.data}
+    assert {"ADMIN", "RESIDENTE", "RESPONSABLE_PQR"} <= codigos
+
+    r_users = admin_client.get("/api/v1/comunicados-opciones/usuarios/", {"search": "rosa"})
+    assert r_users.status_code == 200
+    assert [u["username"] for u in r_users.data] == ["rosa"]
+
+    r_ids = admin_client.get("/api/v1/comunicados-opciones/usuarios/", {"ids": f"{residente.pk},{residente2.pk}"})
+    assert r_ids.status_code == 200
+    assert {u["id"] for u in r_ids.data} == {residente.pk, residente2.pk}
+
+
+def test_seed_demo_y_seed_modulo2_idempotentes_e_integridad(db, settings):
+    settings.DEBUG = True
+    call_command("seed_demo")
+    call_command("seed_modulo2")
+    call_command("seed_modulo2")  # idempotente: no duplica registros
+
+    assert Comunicado.objects.filter(titulo="Corte de agua programado", estado="PUBLICADO").count() == 1
+    assert Comunicado.objects.filter(titulo="Jornada de fumigación", estado="PROGRAMADO").count() == 1
+    assert Auditoria.objects.filter(tabla="comunicados").exists()
+    assert Auditoria.objects.filter(tabla="mantenimientos").exists()
+    assert Auditoria.objects.filter(tabla="bloqueos_amenidad").exists()

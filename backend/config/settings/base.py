@@ -24,6 +24,7 @@ INSTALLED_APPS = [
     "apps.core",
     "apps.usuarios",
     "apps.inmuebles",
+    "apps.comunicados",  # MODULO-2
 ]
 
 MIDDLEWARE = [
