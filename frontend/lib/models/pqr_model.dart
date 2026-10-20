@@ -114,6 +114,24 @@ enum PqrEstado {
   final IconData icon;
   const PqrEstado(this.label, this.icon);
 
+  /// Estado siguiente permitido por el flujo de gestión de PQR.
+  PqrEstado? get siguiente => switch (this) {
+        PqrEstado.enviado => PqrEstado.recibido,
+        PqrEstado.recibido => PqrEstado.visto,
+        PqrEstado.visto => PqrEstado.respondido,
+        PqrEstado.respondido => PqrEstado.resuelto,
+        PqrEstado.resuelto => null,
+      };
+
+  /// Código de backend correspondiente al siguiente estado del flujo.
+  String? get siguienteCodigo => switch (this) {
+        PqrEstado.enviado => 'EN_REVISION',
+        PqrEstado.recibido => 'EN_PROCESO',
+        PqrEstado.visto => 'ATENDIDA',
+        PqrEstado.respondido => 'CERRADA',
+        PqrEstado.resuelto => null,
+      };
+
   /// Color usado en chips e indicadores según el estado del trámite.
   Color get color => this == resuelto
       ? okGreen

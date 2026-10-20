@@ -62,6 +62,19 @@ class PQRDetalleSerializer(serializers.ModelSerializer):
         ]
 
 
+class PQRTransicionEstadoSerializer(serializers.Serializer):
+    """Valida el código del estado de destino solicitado por un gestor."""
+
+    estado_codigo = serializers.ChoiceField(
+        choices=[
+            ("EN_REVISION", "En revisión"),
+            ("EN_PROCESO", "En proceso"),
+            ("ATENDIDA", "Atendida"),
+            ("CERRADA", "Cerrada"),
+        ]
+    )
+
+
 class PQRRegistroSerializer(serializers.ModelSerializer):
     """Valida y procesa los datos enviados desde el formulario de registro de PQR."""
 

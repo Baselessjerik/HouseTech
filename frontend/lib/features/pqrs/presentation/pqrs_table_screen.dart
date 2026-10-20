@@ -10,8 +10,13 @@ import 'pqr_form_screen.dart';
 /// Pantalla principal para consultar y gestionar los radicados PQR del usuario.
 class PqrsTableScreen extends StatefulWidget {
   final PqrService? service;
+  final bool puedeGestionarEstados;
 
-  const PqrsTableScreen({super.key, this.service});
+  const PqrsTableScreen({
+    super.key,
+    this.service,
+    this.puedeGestionarEstados = false,
+  });
 
   @override
   State<PqrsTableScreen> createState() => _PqrsTableScreenState();
@@ -72,6 +77,72 @@ class _PqrsTableScreenState extends State<PqrsTableScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('No se pudo consultar el estado de la PQR: $error'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
+  }
+
+  /// Confirma y envía el avance de estado autorizado para gestores.
+  Future<void> _confirmarCambioEstado(Pqr pqr) async {
+    final pqrId = pqr.id;
+    final siguienteEstado = pqr.estado.siguiente;
+    final siguienteCodigo = pqr.estado.siguienteCodigo;
+    if (!widget.puedeGestionarEstados ||
+        pqrId == null ||
+        siguienteEstado == null ||
+        siguienteCodigo == null) {
+      return;
+    }
+
+    final confirmado = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Text('Cambiar estado de la PQR'),
+        content: Text(
+          '¿Deseas avanzar ${pqr.radicado} de '
+          '${pqr.estado.label} a ${siguienteEstado.label}?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogCtx, true),
+            child: Text('Cambiar a ${siguienteEstado.label}'),
+          ),
+        ],
+      ),
+    );
+    if (confirmado != true || !mounted) return;
+
+    try {
+      final actualizada = await _service.cambiarEstadoPqr(
+        pqrId: pqrId,
+        estadoCodigo: siguienteCodigo,
+      );
+      if (!mounted) return;
+
+      setState(() {
+        _pqrs = _pqrs
+            .map((solicitud) =>
+                solicitud.id == actualizada.id ? actualizada : solicitud)
+            .toList();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${pqr.radicado} avanzó a ${actualizada.estado.label}.',
+          ),
+          backgroundColor: okGreen,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No se pudo cambiar el estado: $error'),
           backgroundColor: Colors.redAccent,
         ),
       );
@@ -299,11 +370,13 @@ class _PqrsTableScreenState extends State<PqrsTableScreen> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Column(
+            Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Mis Radicados PQR',
+                  widget.puedeGestionarEstados
+                      ? 'Gestión de solicitudes PQR'
+                      : 'Mis Radicados PQR',
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
@@ -393,7 +466,7 @@ class _PqrsTableScreenState extends State<PqrsTableScreen> {
                         const anchoTipo = 80.0;
                         const anchoPrioridad = 100.0;
                         const anchoEstado = 110.0;
-                        const anchoAcciones = 208.0;
+                        const anchoAcciones = 240.0;
                         const anchoBase = anchoRadicado +
                             anchoTipo +
                             anchoPrioridad +
@@ -603,6 +676,26 @@ class _PqrsTableScreenState extends State<PqrsTableScreen> {
                                             onPressed: () =>
                                                 _consultarDetalle(pqr),
                                           ),
+                                          if (widget.puedeGestionarEstados &&
+                                              pqr.estado.siguiente != null)
+                                            IconButton(
+                                              tooltip:
+                                                  'Avanzar a ${pqr.estado.siguiente!.label}',
+                                              icon: const Icon(
+                                                Icons.arrow_forward_rounded,
+                                                size: 19,
+                                                color: AppColors.oceanBlue,
+                                              ),
+                                              visualDensity:
+                                                  VisualDensity.compact,
+                                              padding: EdgeInsets.zero,
+                                              constraints: const BoxConstraints(
+                                                minWidth: 32,
+                                                minHeight: 36,
+                                              ),
+                                              onPressed: () =>
+                                                  _confirmarCambioEstado(pqr),
+                                            ),
                                           IconButton(
                                             tooltip: 'Editar',
                                             icon: const Icon(

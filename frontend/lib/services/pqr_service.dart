@@ -62,6 +62,7 @@ class PqrService {
       'tipo_id',
       'inmueble_id',
       'archivo',
+      'estado_codigo',
       'non_field_errors'
     ]) {
       if (data.containsKey(key)) {
@@ -174,6 +175,37 @@ class PqrService {
     if (decoded is! Map<String, dynamic>) {
       throw const FormatException(
         'El servidor devolvió el detalle de la PQR con un formato inválido.',
+      );
+    }
+
+    return Pqr.fromJson(decoded);
+  }
+
+  /// Avanza el estado de una PQR mediante el endpoint protegido del backend.
+  Future<Pqr> cambiarEstadoPqr({
+    required int pqrId,
+    required String estadoCodigo,
+  }) async {
+    final response = await _authenticatedRequest(
+      () async => http.patch(
+        Uri.parse('${ApiConfig.pqrsUrl}$pqrId/estado/'),
+        headers: await _headers(),
+        body: jsonEncode({'estado_codigo': estadoCodigo}),
+      ),
+    );
+
+    final decoded = response.body.isEmpty
+        ? <String, dynamic>{}
+        : jsonDecode(utf8.decode(response.bodyBytes));
+    if (response.statusCode != 200) {
+      final mensaje = decoded is Map<String, dynamic>
+          ? _extraerError(decoded)
+          : 'No fue posible cambiar el estado de la PQR.';
+      throw Exception(mensaje);
+    }
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException(
+        'El servidor devolvió el cambio de estado con un formato inválido.',
       );
     }
 

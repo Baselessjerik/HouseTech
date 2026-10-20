@@ -8,6 +8,7 @@ from .views import (
     PQRAdjuntoRetrieveUpdateDestroyView,
     PQRListCreateView,
     PQRRetrieveUpdateDestroyView,
+    PQRTransicionEstadoView,
     TipoPQRListView,
 )
 
@@ -27,6 +28,11 @@ urlpatterns = [
         "pqrs/<int:pk>/",
         PQRRetrieveUpdateDestroyView.as_view(),
         name="pqrs-detail-update-delete",
+    ),
+    path(
+        "pqrs/<int:pk>/estado/",
+        PQRTransicionEstadoView.as_view(),
+        name="pqrs-transicion-estado",
     ),
     # Gestión de metadatos y archivos asociados a cada solicitud.
     path(

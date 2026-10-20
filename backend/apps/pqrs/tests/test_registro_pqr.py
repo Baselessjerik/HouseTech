@@ -37,6 +37,46 @@ def residente_client(residente):
 
 
 @pytest.fixture
+def responsable_pqr_client():
+    """Cliente autenticado con el permiso de gestión asignado al responsable PQR."""
+    usuario = Usuario.objects.create_user(
+        username="responsable_ciclo_pqr",
+        email="responsable_ciclo_pqr@example.com",
+        password=CLAVE,
+        nombres="Responsable",
+        apellidos="PQR",
+        numero_documento="3098765432",
+    )
+    UsuarioRol.objects.create(
+        usuario=usuario,
+        rol=Rol.objects.get(codigo="RESPONSABLE_PQR"),
+    )
+    cliente = APIClient()
+    cliente.force_authenticate(user=usuario)
+    return cliente
+
+
+@pytest.fixture
+def admin_pqr_client():
+    """Cliente administrador; su rol también tiene permiso pqr.gestionar."""
+    usuario = Usuario.objects.create_user(
+        username="admin_ciclo_pqr",
+        email="admin_ciclo_pqr@example.com",
+        password=CLAVE,
+        nombres="Admin",
+        apellidos="PQR",
+        numero_documento="4098765432",
+    )
+    UsuarioRol.objects.create(
+        usuario=usuario,
+        rol=Rol.objects.get(codigo="ADMIN"),
+    )
+    cliente = APIClient()
+    cliente.force_authenticate(user=usuario)
+    return cliente
+
+
+@pytest.fixture
 def tipo_peticion():
     """Obtiene el tipo Petición precargado por el esquema de pruebas."""
     return TipoPQR.objects.get(codigo="PETICION")
@@ -44,7 +84,7 @@ def tipo_peticion():
 
 @pytest.mark.django_db
 class TestRegistroPQR:
-    """Comprueba permisos, radicación, validación y ciclo de vida de adjuntos."""
+    """Comprueba el registro, ciclo de estados, permisos y adjuntos de PQR."""
 
     def _crear_pqr(self, residente_client, tipo_peticion):
         """Crea una PQR válida para usarla en pruebas de adjuntos."""
@@ -106,6 +146,87 @@ class TestRegistroPQR:
         assert respuesta.data["id"] == pqr_id
         assert respuesta.data["estado_codigo"] == "RECIBIDA"
         assert respuesta.data["estado_nombre"]
+
+    def test_responsable_pqr_avanza_solicitud_por_todo_el_ciclo(
+        self,
+        residente_client,
+        responsable_pqr_client,
+        tipo_peticion,
+    ):
+        """El responsable recorre el flujo y la base registra cierre e historial."""
+        pqr_id = self._crear_pqr(residente_client, tipo_peticion)
+
+        for codigo_estado in (
+            "EN_REVISION",
+            "EN_PROCESO",
+            "ATENDIDA",
+            "CERRADA",
+        ):
+            respuesta = responsable_pqr_client.patch(
+                f"/api/v1/pqrs/{pqr_id}/estado/",
+                data={"estado_codigo": codigo_estado},
+                format="json",
+            )
+
+            assert respuesta.status_code == 200, respuesta.data
+            assert respuesta.data["estado_codigo"] == codigo_estado
+
+        pqr = PQR.objects.get(pk=pqr_id)
+        assert pqr.fecha_cierre is not None
+        assert pqr.historial.count() == 5
+
+    def test_admin_puede_cambiar_estado_de_pqr(
+        self,
+        residente_client,
+        admin_pqr_client,
+        tipo_peticion,
+    ):
+        """El rol administrador, que posee pqr.gestionar, puede avanzar el estado."""
+        pqr_id = self._crear_pqr(residente_client, tipo_peticion)
+
+        respuesta = admin_pqr_client.patch(
+            f"/api/v1/pqrs/{pqr_id}/estado/",
+            data={"estado_codigo": "EN_REVISION"},
+            format="json",
+        )
+
+        assert respuesta.status_code == 200, respuesta.data
+        assert respuesta.data["estado_codigo"] == "EN_REVISION"
+
+    def test_gestor_no_puede_saltar_estados(
+        self,
+        residente_client,
+        responsable_pqr_client,
+        tipo_peticion,
+    ):
+        """Rechaza el salto de RECIBIDA a EN_PROCESO."""
+        pqr_id = self._crear_pqr(residente_client, tipo_peticion)
+
+        respuesta = responsable_pqr_client.patch(
+            f"/api/v1/pqrs/{pqr_id}/estado/",
+            data={"estado_codigo": "EN_PROCESO"},
+            format="json",
+        )
+
+        assert respuesta.status_code == 400
+        assert PQR.objects.get(pk=pqr_id).estado.codigo == "RECIBIDA"
+
+    def test_residente_no_puede_cambiar_estado_de_pqr(
+        self,
+        residente_client,
+        tipo_peticion,
+    ):
+        """El permiso de radicación no permite modificar el estado."""
+        pqr_id = self._crear_pqr(residente_client, tipo_peticion)
+
+        respuesta = residente_client.patch(
+            f"/api/v1/pqrs/{pqr_id}/estado/",
+            data={"estado_codigo": "EN_REVISION"},
+            format="json",
+        )
+
+        assert respuesta.status_code == 403
+        assert PQR.objects.get(pk=pqr_id).estado.codigo == "RECIBIDA"
 
     def test_validacion_campos_cortos(self, residente_client, tipo_peticion):
         """Valida que no permita asuntos o descripciones vacías o muy breves."""

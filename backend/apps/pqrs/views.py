@@ -3,6 +3,7 @@
 import logging
 
 from django.core.files.storage import default_storage
+from django.db import transaction
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
@@ -12,6 +13,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.permissions import requiere_permiso
+from apps.core.models import Estado
 from apps.inmuebles.models import Inmueble
 from .models import PQR, PQRAdjunto, TipoPQR
 from .serializers import (
@@ -19,11 +21,21 @@ from .serializers import (
     PQRAdjuntoSerializer,
     PQRDetalleSerializer,
     PQRRegistroSerializer,
+    PQRTransicionEstadoSerializer,
     TipoPQRSerializer,
 )
 
 PuedeRadicarPQR = requiere_permiso("pqr.radicar")
+PuedeGestionarPQR = requiere_permiso("pqr.gestionar")
 logger = logging.getLogger(__name__)
+
+TRANSICIONES_ESTADO_PQR = {
+    "RECIBIDA": {"EN_REVISION"},
+    "EN_REVISION": {"EN_PROCESO"},
+    "EN_PROCESO": {"ATENDIDA"},
+    "ATENDIDA": {"CERRADA"},
+    "CERRADA": set(),
+}
 
 
 def pqrs_accesibles_para(usuario):
@@ -120,6 +132,70 @@ class PQRRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
         if not self.request.user.tiene_permiso("pqr.gestionar") and instance.estado.codigo != "RECIBIDA":
             raise exceptions.PermissionDenied("No es posible eliminar una PQR que ya ha sido revisada o atendida.")
         instance.delete()
+
+
+class PQRTransicionEstadoView(APIView):
+    """Permite a administradores y responsables avanzar una PQR de estado."""
+
+    permission_classes = [permissions.IsAuthenticated, PuedeGestionarPQR]
+
+    def patch(self, request, pk):
+        """Valida y persiste una transición permitida del ciclo de vida."""
+        serializer = PQRTransicionEstadoSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        estado_destino_codigo = serializer.validated_data["estado_codigo"]
+
+        # Bloquea la fila de PQR mientras verifica y aplica el cambio, evitando
+        # que solicitudes simultáneas validen el mismo estado anterior.
+        with transaction.atomic():
+            pqr = get_object_or_404(
+                PQR.objects.select_for_update(),
+                pk=pk,
+            )
+            destinos_permitidos = TRANSICIONES_ESTADO_PQR.get(
+                pqr.estado.codigo,
+                set(),
+            )
+
+            if estado_destino_codigo not in destinos_permitidos:
+                destinos_texto = ", ".join(sorted(destinos_permitidos)) or "ninguno"
+                return Response(
+                    {
+                        "estado_codigo": (
+                            f"No se permite pasar de '{pqr.estado.codigo}' "
+                            f"a '{estado_destino_codigo}'. "
+                            f"Destinos permitidos: {destinos_texto}."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            estado_destino = Estado.objects.filter(
+                proceso="PQR",
+                codigo=estado_destino_codigo,
+                activo=True,
+            ).first()
+            if estado_destino is None:
+                return Response(
+                    {
+                        "estado_codigo": (
+                            "El estado de destino no está configurado "
+                            "como activo para el proceso PQR."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            pqr.estado = estado_destino
+            # Los triggers registran el historial y actualizan fecha_cierre
+            # cuando el nuevo estado está marcado como final.
+            pqr.save(update_fields=["estado", "updated_at"])
+            pqr.refresh_from_db()
+
+        return Response(
+            PQRDetalleSerializer(pqr).data,
+            status=status.HTTP_200_OK,
+        )
 
 
 class PQRAdjuntoListCreateView(generics.ListCreateAPIView):

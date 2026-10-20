@@ -200,13 +200,22 @@ class _AppShellState extends ConsumerState<AppShell> {
     add('inmuebles.consultar', 'Inmuebles', Icons.apartment_rounded);
     add('comunicados.ver', 'Comunicados', Icons.campaign_rounded);
     // Ubicación: frontend/lib/shell/app_shell.dart -> en _itemsFor
-    add(
-      'pqr.radicar',
-      'Mis PQRs',
-      Icons.rate_review_rounded,
-      (_) => const PqrsTableScreen(),
-    );
-    add('pqr.gestionar', 'Gestionar PQR', Icons.support_agent_rounded);
+    if (user.tienePermiso('pqr.gestionar')) {
+      items.add(
+        _MenuItem(
+          'Gestionar PQR',
+          Icons.support_agent_rounded,
+          (_) => const PqrsTableScreen(puedeGestionarEstados: true),
+        ),
+      );
+    } else {
+      add(
+        'pqr.radicar',
+        'Mis PQRs',
+        Icons.rate_review_rounded,
+        (_) => const PqrsTableScreen(),
+      );
+    }
     add('reservas.solicitar', 'Solicitar reserva',
         Icons.calendar_month_rounded);
     add('usuarios.gestionar', 'Usuarios', Icons.people_alt_rounded);
