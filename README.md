@@ -12,6 +12,7 @@ HouseTech/
 │   ├── apps/
 │   │   ├── core/                 # Esquema SQL, auditoría y utilidades comunes
 │   │   ├── inmuebles/            # Inmuebles y relación usuario-inmueble
+│   │   ├── pqrs/                 # Peticiones, quejas y reclamos (PQR)
 │   │   └── usuarios/             # Usuarios, roles, permisos y autenticación
 │   ├── config/
 │   │   ├── settings/
@@ -30,6 +31,7 @@ HouseTech/
 │   ├── Dockerfile                # Compilación Flutter y servidor Nginx
 │   ├── nginx.conf                # Configuración del frontend web
 │   ├── lib/features/auth/        # Login y registro
+│   ├── lib/features/pqrs/        # Tabla CRUD y radicación de PQR
 │   ├── lib/services/             # Comunicación con la API
 │   ├── test/                     # Pruebas widget
 │   └── pubspec.yaml              # Dependencias Flutter
@@ -270,8 +272,151 @@ El frontend guarda los tokens JWT con `flutter_secure_storage`. Para Android
 emulado debe usarse `10.0.2.2:8000` en lugar de `127.0.0.1:8000`; en un
 dispositivo físico debe configurarse la IP local del equipo que ejecuta Docker.
 
-El frontend tiene nueve pruebas widget en
-[frontend/test/auth_screen_test.dart](./frontend/test/auth_screen_test.dart).
+### Módulo PQR (Peticiones, Quejas y Reclamos)
+
+El módulo permite a los residentes clasificar, radicar y consultar peticiones,
+quejas y reclamos. El flujo para crear una solicitud es:
+
+1. El formulario carga los tipos activos del catálogo desde
+   `GET /api/v1/pqrs/tipos/` y muestra Petición, Queja y Reclamo como opciones.
+   La persona debe elegir explícitamente una clasificación; el formulario no
+   selecciona una opción por defecto.
+2. El formulario valida la clasificación, el asunto (mínimo 5 caracteres) y la
+   descripción (mínimo 10 caracteres). Al enviar, muestra todos los errores
+   presentes en el mismo formulario.
+3. El cliente envía `tipo_id`, asunto, descripción y prioridad a
+   `POST /api/v1/pqrs/`. El radicado no se genera ni se acepta desde Flutter.
+4. El backend asocia la solicitud al usuario autenticado y al estado inicial del
+   proceso PQR. PostgreSQL genera el radicado a partir del prefijo del tipo, el
+   año y una secuencia compartida, en el formato `PREFIJO-AAAA-NNNNNN` (por
+   ejemplo, `PET-2026-000001`). La columna tiene una restricción única.
+5. La respuesta exitosa incluye el tipo y el radicado generado. El formulario
+   muestra ese número para confirmación y actualiza la lista de solicitudes
+   después de cerrar el mensaje de éxito.
+
+El catálogo inicial contiene los siguientes tipos:
+
+| Código | Nombre | Prefijo de radicado |
+|---|---|---|
+| `PETICION` | Petición | `PET` |
+| `QUEJA` | Queja | `QUE` |
+| `RECLAMO` | Reclamo | `REC` |
+
+Si no se puede cargar el catálogo, el formulario presenta el error y permite
+reintentar. No permite radicar sin tipos disponibles ni sin una clasificación
+seleccionada. El tipo de una PQR ya radicada no se puede cambiar mediante la
+edición normal, para mantener coherencia con el prefijo del radicado.
+
+#### Endpoints del módulo
+
+| Función | Método | Endpoint | Permiso requerido |
+|---|---|---|---|
+| Catálogo de tipos de PQR | `GET` | `/api/v1/pqrs/tipos/` | `pqr.radicar` |
+| Inmuebles del residente | `GET` | `/api/v1/pqrs/mis-inmuebles/` | `pqr.radicar` |
+| Listar mis PQR radicadas | `GET` | `/api/v1/pqrs/` | `pqr.radicar` |
+| Radicar PQR mediante formulario | `POST` | `/api/v1/pqrs/` | `pqr.radicar` |
+| Consultar detalle de una PQR | `GET` | `/api/v1/pqrs/<id>/` | `pqr.radicar` |
+| Editar PQR | `PATCH` | `/api/v1/pqrs/<id>/` | `pqr.radicar` (estado Recibida) |
+| Eliminar PQR | `DELETE` | `/api/v1/pqrs/<id>/` | `pqr.radicar` (estado Recibida) |
+| Listar metadatos de adjuntos | `GET` | `/api/v1/pqrs/<id>/adjuntos/` | `pqr.radicar` |
+| Adjuntar archivo a una PQR | `POST` | `/api/v1/pqrs/<id>/adjuntos/` | `pqr.radicar` (estado Recibida) |
+| Consultar un adjunto | `GET` | `/api/v1/pqrs/<id>/adjuntos/<adjunto_id>/` | `pqr.radicar` |
+| Reemplazar un adjunto | `PATCH` | `/api/v1/pqrs/<id>/adjuntos/<adjunto_id>/` | `pqr.radicar` (estado Recibida) |
+| Eliminar un adjunto | `DELETE` | `/api/v1/pqrs/<id>/adjuntos/<adjunto_id>/` | `pqr.radicar` (estado Recibida) |
+| Descargar adjunto | `GET` | `/api/v1/pqrs/<id>/adjuntos/<adjunto_id>/descargar/` | `pqr.radicar` |
+
+Todos los endpoints requieren autenticación. Las solicitudes creadas por una
+persona residente se asocian automáticamente a su usuario. El permiso
+`pqr.gestionar` permite consultar las PQR para gestión; los residentes consultan
+sus propias solicitudes.
+
+Los adjuntos se cargan individualmente como `multipart/form-data`, usando el
+campo `archivo`, en estado `RECIBIDA` para residentes. Se permiten archivos PDF,
+JPG y PNG de hasta 10 MiB por archivo; el backend comprueba que la firma del
+contenido coincida con la extensión. Los archivos se guardan en el volumen
+persistente `pqr_media` y no se publican mediante una URL directa. El listado
+devuelve metadatos; para obtener el contenido se debe usar el endpoint de
+descarga autenticado. Los residentes solo pueden listar o descargar adjuntos de
+sus propias PQR; quienes tienen permiso `pqr.gestionar` pueden acceder a todas.
+Los residentes también pueden reemplazar o eliminar adjuntos mientras la PQR
+esté en estado `RECIBIDA`; las operaciones sustituyen o borran el archivo en el
+almacenamiento junto con sus metadatos. Los gestores pueden realizar estas
+operaciones sobre cualquier PQR.
+En Flutter, el formulario permite seleccionar varios archivos y los carga
+después de crear la PQR; la tabla de solicitudes ofrece una acción para revisar,
+descargar o añadir evidencias posteriormente. Si un archivo falla después de
+que la PQR ya fue creada, el formulario conserva el radicado e informa que se
+puede reintentar desde las acciones de adjuntos.
+
+Ejemplo del cuerpo para radicar una queja:
+
+```json
+{
+  "tipo_id": 2,
+  "asunto": "Ruido en zona común",
+  "descripcion": "El ruido persiste durante la noche en la zona común.",
+  "prioridad": "MEDIA"
+}
+```
+
+El `tipo_id` debe corresponder a un registro activo del catálogo. El campo
+`inmueble_id` es opcional y, cuando se envía, el backend verifica que la persona
+tenga un vínculo vigente con el inmueble o el permiso de gestión PQR. El cliente
+no debe enviar `radicado`, `solicitante` ni `estado`: el servidor determina esos
+valores.
+
+Una respuesta exitosa (`201 Created`) incluye, entre otros datos:
+
+```json
+{
+  "id": 42,
+  "radicado": "QUE-2026-000001",
+  "tipo": {
+    "id": 2,
+    "codigo": "QUEJA",
+    "nombre": "Queja",
+    "prefijo": "QUE"
+  },
+  "asunto": "Ruido en zona común",
+  "prioridad": "MEDIA",
+  "estado_codigo": "RECIBIDA"
+}
+```
+
+#### Archivos principales
+
+| Archivo | Responsabilidad |
+|---|---|
+| `backend/apps/pqrs/models.py` | Modelos `TipoPQR` y `PQR`. |
+| `backend/apps/pqrs/serializers.py` | Validación y creación de solicitudes. |
+| `backend/apps/pqrs/views.py` | Vistas y permisos de la API. |
+| `backend/apps/pqrs/urls.py` | Rutas del módulo. |
+| `backend/apps/core/sql/schema.sql` | Tablas, catálogo, secuencia y trigger SQL. |
+| `frontend/lib/models/pqr_model.dart` | Modelos del catálogo y de una PQR. |
+| `frontend/lib/services/pqr_service.dart` | Comunicación HTTP con la API PQR. |
+| `frontend/lib/services/pqr_file_saver.dart` | Guardado de descargas con implementación específica para web y otras plataformas. |
+| `frontend/lib/features/pqrs/presentation/pqr_form_screen.dart` | Selección de tipo, validación, archivos, envío y confirmación de radicación. |
+| `frontend/lib/features/pqrs/presentation/pqrs_table_screen.dart` | Listado, búsqueda y acciones sobre las PQR. |
+| `frontend/lib/features/pqrs/presentation/pqr_adjuntos_dialog.dart` | Listado, carga, descarga, reemplazo y eliminación de evidencias vinculadas a una PQR. |
+
+#### Pruebas del módulo PQR
+
+Desde la raíz del repositorio, las pruebas automatizadas pueden ejecutarse así:
+
+```powershell
+# Backend (Pytest en Docker)
+docker compose exec backend pytest apps/pqrs/tests/test_registro_pqr.py -v
+
+# Frontend (Flutter widget tests)
+cd frontend
+flutter test test/pqr_form_test.dart
+```
+
+Las pruebas frontend del formulario verifican que los errores de clasificación,
+asunto y descripción se muestren a la vez dentro del formulario, que el tipo se
+elija explícitamente, que se envíe el identificador seleccionado, que se
+presente el radicado devuelto por el backend y que el usuario pueda reintentar
+si falla la carga del catálogo.
 
 ## Rama del módulo
 

@@ -29,6 +29,7 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
+      - pqr_media:/app/media
     env_file:
       - path: ./backend/.env
         required: false
@@ -53,3 +54,4 @@ services:
 
 volumes:
   postgres_data:
+  pqr_media:
