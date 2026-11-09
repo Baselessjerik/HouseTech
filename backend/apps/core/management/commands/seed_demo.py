@@ -54,7 +54,9 @@ class Command(BaseCommand):
                     )
                     estado = "creado"
                 else:
-                    estado = "ya existía"
+                    usuario.set_password(opciones["password"])
+                    usuario.save(update_fields=["password"])
+                    estado = "actualizado"
                 UsuarioRol.objects.get_or_create(usuario=usuario, rol=Rol.objects.get(codigo=codigo_rol))
                 self.stdout.write(f"  {username:<12} {codigo_rol:<16} {estado}")
 

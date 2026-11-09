@@ -9,12 +9,18 @@ class PqrFormScreen extends StatefulWidget {
   final PqrService? service;
   final VoidCallback? onCancelar;
   final VoidCallback? onPqrRadicada;
+  final VoidCallback? onPqrActualizada;
+  final bool puedeAsignarPrioridad;
+  final Pqr? pqrInicial;
 
   const PqrFormScreen({
     super.key,
     this.service,
     this.onCancelar,
     this.onPqrRadicada,
+    this.onPqrActualizada,
+    this.puedeAsignarPrioridad = false,
+    this.pqrInicial,
   });
 
   @override
@@ -36,22 +42,51 @@ class _PqrFormScreenState extends State<PqrFormScreen> {
   List<TipoPqrModel> _tipos = [];
   List<InmuebleOpcionModel> _inmuebles = [];
   List<PlatformFile> _adjuntosSeleccionados = [];
+  List<PqrAdjuntoModel> _adjuntosExistentes = [];
 
   TipoPqrModel? _tipoSeleccionado;
   InmuebleOpcionModel? _inmuebleSeleccionado;
   String _prioridadSeleccionada = 'MEDIA';
 
   bool _cargandoDatos = true;
+  bool _cargandoAdjuntos = false;
   bool _enviando = false;
   String? _errorCatalogo;
   String? _errorTipoSolicitud;
   String? _errorAdjuntos;
+  final DateTime _fechaRadicacion = DateTime.now();
+  bool get _modoEdicion => widget.pqrInicial != null;
+
+  String _formatearFecha(DateTime fecha) {
+    final dia = fecha.day.toString().padLeft(2, '0');
+    final mes = fecha.month.toString().padLeft(2, '0');
+    final hora = fecha.hour.toString().padLeft(2, '0');
+    final minuto = fecha.minute.toString().padLeft(2, '0');
+    return '$dia/$mes/${fecha.year}, $hora:$minuto';
+  }
+
+  String _formatearFechaTexto(String fecha) {
+    final valor = fecha.trim();
+    if (valor.isEmpty) return 'Sin fecha';
+    final parsed = DateTime.tryParse(valor);
+    if (parsed == null) return valor;
+    return _formatearFecha(parsed.isUtc ? parsed : parsed.toLocal());
+  }
 
   @override
   void initState() {
     super.initState();
     _pqrService = widget.service ?? PqrService();
+    final pqr = widget.pqrInicial;
+    if (pqr != null) {
+      _asuntoCtrl.text = pqr.asunto;
+      _descripcionCtrl.text = pqr.descripcion;
+      _prioridadSeleccionada = pqr.prioridad.toUpperCase();
+    }
     _cargarCatalogos();
+    if (_modoEdicion && pqr?.id != null) {
+      _cargarAdjuntosExistentes(pqr!.id!);
+    }
   }
 
   @override
@@ -82,8 +117,22 @@ class _PqrFormScreenState extends State<PqrFormScreen> {
       setState(() {
         _tipos = tiposCargados;
         _inmuebles = inmueblesCargados;
-        _tipoSeleccionado = null;
-        _inmuebleSeleccionado = _inmuebles.isNotEmpty ? _inmuebles.first : null;
+        final pqr = widget.pqrInicial;
+        if (pqr != null) {
+          _tipoSeleccionado = tiposCargados
+              .where(
+                (tipo) => tipo.nombre.toLowerCase() == pqr.tipo.toLowerCase(),
+              )
+              .firstOrNull;
+          _inmuebleSeleccionado = inmueblesCargados
+              .where(
+                (inmueble) => inmueble.id == pqr.inmuebleId,
+              )
+              .firstOrNull;
+        } else {
+          _tipoSeleccionado = null;
+          _inmuebleSeleccionado = null;
+        }
         _cargandoDatos = false;
       });
     } catch (error) {
@@ -95,6 +144,223 @@ class _PqrFormScreenState extends State<PqrFormScreen> {
         _errorCatalogo = error.toString().replaceFirst('Exception: ', '');
         _cargandoDatos = false;
       });
+    }
+  }
+
+  Future<void> _cargarAdjuntosExistentes(int pqrId) async {
+    if (!mounted) return;
+    setState(() {
+      _cargandoAdjuntos = true;
+      _errorAdjuntos = null;
+    });
+    try {
+      final adjuntos = await _pqrService.obtenerAdjuntosPqr(pqrId);
+      if (!mounted) return;
+      setState(() {
+        _adjuntosExistentes = adjuntos;
+        _cargandoAdjuntos = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _cargandoAdjuntos = false;
+        _errorAdjuntos = error.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  Future<void> _eliminarAdjuntoExistente(PqrAdjuntoModel adjunto) async {
+    final pqrId = widget.pqrInicial?.id;
+    if (pqrId == null || _enviando) return;
+    setState(() => _enviando = true);
+    try {
+      final resultado = await _pqrService.eliminarAdjuntoPqr(
+        pqrId: pqrId,
+        adjuntoId: adjunto.id,
+      );
+      if (!mounted) return;
+      if (resultado['success'] == true) {
+        setState(() {
+          _adjuntosExistentes = _adjuntosExistentes
+              .where((item) => item.id != adjunto.id)
+              .toList();
+          _enviando = false;
+        });
+      } else {
+        setState(() {
+          _enviando = false;
+          _errorAdjuntos = resultado['message']?.toString() ??
+              'No se pudo eliminar el archivo.';
+        });
+      }
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _enviando = false;
+        _errorAdjuntos = error.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  bool _esImagenLocal(PlatformFile archivo) {
+    final nombre = archivo.name.toLowerCase();
+    return nombre.endsWith('.jpg') ||
+        nombre.endsWith('.jpeg') ||
+        nombre.endsWith('.png');
+  }
+
+  bool _esImagenAdjunto(PqrAdjuntoModel adjunto) {
+    final mime = adjunto.tipoMime.toLowerCase();
+    final nombre = adjunto.nombreArchivo.toLowerCase();
+    return mime.startsWith('image/') ||
+        nombre.endsWith('.jpg') ||
+        nombre.endsWith('.jpeg') ||
+        nombre.endsWith('.png');
+  }
+
+  void _verImagenLocal(PlatformFile archivo) {
+    final bytes = archivo.bytes;
+    if (bytes == null) return;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.black.withValues(alpha: .9),
+        insetPadding: const EdgeInsets.all(16),
+        child: Stack(
+          children: [
+            Center(
+              child: InteractiveViewer(
+                minScale: 0.5,
+                maxScale: 4.0,
+                child: Image.memory(bytes),
+              ),
+            ),
+            Positioned(
+              top: 12,
+              right: 12,
+              child: IconButton(
+                tooltip: 'Cerrar',
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.black54,
+                  foregroundColor: Colors.white,
+                ),
+                icon: const Icon(Icons.close_rounded),
+              ),
+            ),
+            Positioned(
+              bottom: 16,
+              left: 16,
+              right: 16,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  archivo.name,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _verImagenAdjuntaExistente(PqrAdjuntoModel adjunto) async {
+    final pqrId = widget.pqrInicial?.id;
+    if (pqrId == null) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(
+        child: CircularProgressIndicator(color: Colors.white),
+      ),
+    );
+
+    try {
+      final bytes = await _pqrService.descargarAdjuntoPqr(
+        pqrId: pqrId,
+        adjuntoId: adjunto.id,
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop(); // Cierra indicador de carga
+
+      showDialog(
+        context: context,
+        builder: (dialogContext) => Dialog(
+          backgroundColor: Colors.black.withValues(alpha: .9),
+          insetPadding: const EdgeInsets.all(16),
+          child: Stack(
+            children: [
+              Center(
+                child: InteractiveViewer(
+                  minScale: 0.5,
+                  maxScale: 4.0,
+                  child: Image.memory(bytes),
+                ),
+              ),
+              Positioned(
+                top: 12,
+                right: 12,
+                child: IconButton(
+                  tooltip: 'Cerrar',
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.black54,
+                    foregroundColor: Colors.white,
+                  ),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ),
+              Positioned(
+                bottom: 16,
+                left: 16,
+                right: 16,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    adjunto.nombreArchivo,
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No se pudo cargar la imagen: $error'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
     }
   }
 
@@ -113,29 +379,43 @@ class _PqrFormScreenState extends State<PqrFormScreen> {
     setState(() => _enviando = true);
 
     try {
-      final resultado = await _pqrService.radicarPqr(
-        tipoId: _tipoSeleccionado!.id,
-        asunto: _asuntoCtrl.text,
-        descripcion: _descripcionCtrl.text,
-        prioridad: _prioridadSeleccionada,
-        inmuebleId: _inmuebleSeleccionado?.id,
-      );
+      final pqrInicial = widget.pqrInicial;
+      final resultado = _modoEdicion
+          ? await _pqrService.actualizarPqr(
+              id: pqrInicial!.id!,
+              tipoId: _tipoSeleccionado!.id,
+              asunto: _asuntoCtrl.text,
+              descripcion: _descripcionCtrl.text,
+              prioridad: widget.puedeAsignarPrioridad
+                  ? _prioridadSeleccionada
+                  : pqrInicial.prioridad,
+              inmuebleId: _inmuebleSeleccionado?.id,
+            )
+          : await _pqrService.radicarPqr(
+              tipoId: _tipoSeleccionado!.id,
+              asunto: _asuntoCtrl.text,
+              descripcion: _descripcionCtrl.text,
+              prioridad: widget.puedeAsignarPrioridad
+                  ? _prioridadSeleccionada
+                  : 'MEDIA',
+              inmuebleId: _inmuebleSeleccionado?.id,
+            );
 
       if (!mounted) return;
 
       if (resultado['success'] == true) {
-        final radicado = resultado['radicado'] as String;
-        final pqr = resultado['pqr'] as Pqr?;
         final erroresAdjuntos = <String>[];
+        final pqr = resultado['pqr'] as Pqr?;
+        final idObjetivo = _modoEdicion ? pqrInicial?.id : pqr?.id;
 
-        if (_adjuntosSeleccionados.isNotEmpty && pqr?.id == null) {
+        if (_adjuntosSeleccionados.isNotEmpty && idObjetivo == null) {
           erroresAdjuntos.add(
-            'No se recibio el identificador de la PQR para asociar los archivos.',
+            'No se recibió el identificador de la PQR para asociar los archivos.',
           );
-        } else if (pqr?.id != null) {
+        } else if (idObjetivo != null) {
           for (final archivo in _adjuntosSeleccionados) {
             final carga = await _pqrService.subirAdjuntoPqr(
-              pqrId: pqr!.id!,
+              pqrId: idObjetivo,
               archivo: archivo,
             );
             if (carga['success'] != true) {
@@ -148,11 +428,25 @@ class _PqrFormScreenState extends State<PqrFormScreen> {
 
         if (!mounted) return;
         setState(() => _enviando = false);
-        _mostrarDialogoExito(
-          radicado,
-          archivosSeleccionados: _adjuntosSeleccionados.length,
-          erroresAdjuntos: erroresAdjuntos,
-        );
+        if (_modoEdicion) {
+          if (erroresAdjuntos.isNotEmpty) {
+            _mostrarMensaje(
+              'La PQR se actualizó, pero ${erroresAdjuntos.join("; ")}',
+              esError: true,
+            );
+          } else {
+            _mostrarMensaje('PQR actualizada correctamente');
+          }
+          widget.onPqrActualizada?.call();
+          widget.onCancelar?.call();
+        } else {
+          final radicado = resultado['radicado'] as String;
+          _mostrarDialogoExito(
+            radicado,
+            archivosSeleccionados: _adjuntosSeleccionados.length,
+            erroresAdjuntos: erroresAdjuntos,
+          );
+        }
       } else {
         setState(() => _enviando = false);
         _mostrarMensaje(resultado['message'].toString(), esError: true);
@@ -161,7 +455,9 @@ class _PqrFormScreenState extends State<PqrFormScreen> {
       if (!mounted) return;
       setState(() => _enviando = false);
       _mostrarMensaje(
-        'No fue posible radicar la solicitud: $error',
+        _modoEdicion
+            ? 'No fue posible actualizar la solicitud: $error'
+            : 'No fue posible radicar la solicitud: $error',
         esError: true,
       );
     }
@@ -345,9 +641,10 @@ class _PqrFormScreenState extends State<PqrFormScreen> {
 
     return Card(
       elevation: 0,
+      color: Colors.white,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
-        side: const BorderSide(color: Colors.black12),
+        side: BorderSide(color: AppColors.oceanBlue.withAlpha(18)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -356,35 +653,137 @@ class _PqrFormScreenState extends State<PqrFormScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  const Icon(Icons.rate_review_rounded,
-                      color: AppColors.oceanBlue, size: 28),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Text(
-                      'Registrar PQR mediante formulario',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textDark,
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      AppColors.oceanBlue,
+                      AppColors.oceanBlue.withAlpha(210),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withAlpha(40),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Icon(
+                        Icons.rate_review_rounded,
+                        color: Colors.white,
+                        size: 26,
                       ),
                     ),
-                  ),
-                  if (widget.onCancelar != null)
-                    IconButton(
-                      tooltip: 'Cerrar formulario',
-                      onPressed: _enviando ? null : widget.onCancelar,
-                      icon: const Icon(Icons.close_rounded),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _modoEdicion
+                                ? 'Editar solicitud'
+                                : 'Nueva solicitud',
+                            style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            _modoEdicion
+                                ? 'Actualiza los datos permitidos de esta PQR.'
+                                : 'Radica una petición, queja o reclamo ante la administración.',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Diligencia este formulario para radicar peticiones, quejas o reclamos ante la administración de la copropiedad.',
-                style: TextStyle(fontSize: 14, color: Colors.black54),
+                    if (widget.onCancelar != null)
+                      IconButton(
+                        tooltip: 'Cerrar formulario',
+                        onPressed: _enviando ? null : widget.onCancelar,
+                        color: Colors.white,
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                  ],
+                ),
               ),
               const Divider(height: 36, color: Colors.black12),
+
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 20),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.black12),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: AppColors.oceanBlue.withAlpha(18),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.event_available_rounded,
+                        color: AppColors.oceanBlue,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Fecha de radicación',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.black54,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _modoEdicion
+                                ? '${_formatearFechaTexto(widget.pqrInicial!.fecha)} · Automática'
+                                : '${_formatearFecha(_fechaRadicacion)} · Automática',
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.textDark,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(
+                      Icons.lock_outline_rounded,
+                      size: 18,
+                      color: Colors.black38,
+                    ),
+                  ],
+                ),
+              ),
 
               // Selector de Tipo de PQR (Petición, Queja, Reclamo)
               const Text('Tipo de Solicitud *',
@@ -428,14 +827,16 @@ class _PqrFormScreenState extends State<PqrFormScreen> {
                         fontWeight:
                             seleccionado ? FontWeight.bold : FontWeight.normal,
                       ),
-                      onSelected: (val) {
-                        if (val) {
-                          setState(() {
-                            _tipoSeleccionado = tipo;
-                            _errorTipoSolicitud = null;
-                          });
-                        }
-                      },
+                      onSelected: _modoEdicion
+                          ? null
+                          : (val) {
+                              if (val) {
+                                setState(() {
+                                  _tipoSeleccionado = tipo;
+                                  _errorTipoSolicitud = null;
+                                });
+                              }
+                            },
                     );
                   }).toList(),
                 ),
@@ -472,65 +873,40 @@ class _PqrFormScreenState extends State<PqrFormScreen> {
               ],
               const SizedBox(height: 20),
 
-              // Selector de Inmueble (si el residente tiene inmuebles asignados)
-              if (_inmuebles.isNotEmpty) ...[
-                const Text('Inmueble relacionado (Opcional)',
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                        color: AppColors.textDark)),
-                const SizedBox(height: 8),
-                DropdownButtonFormField<InmuebleOpcionModel>(
-                  value: _inmuebleSeleccionado,
-                  decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.apartment_rounded,
-                        color: AppColors.oceanBlue),
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                  items: [
-                    const DropdownMenuItem<InmuebleOpcionModel>(
-                      value: null,
-                      child: Text('Ninguno / Zonas comunes generales'),
-                    ),
-                    ..._inmuebles.map(
-                      (inm) => DropdownMenuItem(
-                        value: inm,
-                        child: Text(inm.etiquetaPresentacion),
-                      ),
-                    ),
-                  ],
-                  onChanged: (val) =>
-                      setState(() => _inmuebleSeleccionado = val),
+              const Text(
+                'Inmueble relacionado (Opcional)',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: AppColors.textDark,
                 ),
-                const SizedBox(height: 20),
-              ],
-
-              // Prioridad
-              const Text('Nivel de Prioridad',
-                  style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                      color: AppColors.textDark)),
+              ),
               const SizedBox(height: 8),
-              SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(
-                      value: 'BAJA',
-                      label: Text('Baja'),
-                      icon: Icon(Icons.arrow_downward, size: 16)),
-                  ButtonSegment(
-                      value: 'MEDIA',
-                      label: Text('Media'),
-                      icon: Icon(Icons.remove, size: 16)),
-                  ButtonSegment(
-                      value: 'ALTA',
-                      label: Text('Alta'),
-                      icon: Icon(Icons.priority_high, size: 16)),
+              DropdownButtonFormField<InmuebleOpcionModel>(
+                initialValue: _inmuebleSeleccionado,
+                decoration: InputDecoration(
+                  prefixIcon: const Icon(
+                    Icons.apartment_rounded,
+                    color: AppColors.oceanBlue,
+                  ),
+                  hintText: 'Selecciona un inmueble',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                items: [
+                  const DropdownMenuItem<InmuebleOpcionModel>(
+                    value: null,
+                    child: Text('Ninguno / Zonas comunes generales'),
+                  ),
+                  ..._inmuebles.map(
+                    (inm) => DropdownMenuItem(
+                      value: inm,
+                      child: Text(inm.etiquetaPresentacion),
+                    ),
+                  ),
                 ],
-                selected: {_prioridadSeleccionada},
-                onSelectionChanged: (val) =>
-                    setState(() => _prioridadSeleccionada = val.first),
+                onChanged: (val) => setState(() => _inmuebleSeleccionado = val),
               ),
               const SizedBox(height: 20),
 
@@ -610,36 +986,132 @@ class _PqrFormScreenState extends State<PqrFormScreen> {
                 icon: const Icon(Icons.attach_file_rounded),
                 label: const Text('Seleccionar archivos'),
               ),
+              if (_modoEdicion) ...[
+                const SizedBox(height: 10),
+                Text(
+                  'Archivos actuales',
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                if (_cargandoAdjuntos)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8),
+                    child: LinearProgressIndicator(),
+                  )
+                else if (_adjuntosExistentes.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 6),
+                    child: Text(
+                      'Esta solicitud no tiene archivos adjuntos.',
+                      style: TextStyle(fontSize: 12, color: Colors.black54),
+                    ),
+                  )
+                else
+                  ..._adjuntosExistentes.map(
+                    (adjunto) => ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      visualDensity: VisualDensity.compact,
+                      leading: Icon(
+                        _esImagenAdjunto(adjunto)
+                            ? Icons.image_outlined
+                            : Icons.insert_drive_file_outlined,
+                        color: AppColors.oceanBlue,
+                      ),
+                      title: Text(
+                        adjunto.nombreArchivo,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text(adjunto.tamanoLegible),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (_esImagenAdjunto(adjunto))
+                            IconButton(
+                              tooltip: 'Ver imagen',
+                              visualDensity: VisualDensity.compact,
+                              onPressed: _enviando
+                                  ? null
+                                  : () => _verImagenAdjuntaExistente(adjunto),
+                              icon: const Icon(
+                                Icons.visibility_rounded,
+                                color: AppColors.oceanBlue,
+                                size: 20,
+                              ),
+                            ),
+                          IconButton(
+                            tooltip: 'Eliminar ${adjunto.nombreArchivo}',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: _enviando
+                                ? null
+                                : () => _eliminarAdjuntoExistente(adjunto),
+                            icon: const Icon(
+                              Icons.delete_outline_rounded,
+                              color: Colors.redAccent,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
               if (_adjuntosSeleccionados.isNotEmpty) ...[
                 const SizedBox(height: 6),
                 ..._adjuntosSeleccionados.asMap().entries.map((entry) {
                   final index = entry.key;
                   final archivo = entry.value;
-                  return ListTile(
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(
-                      Icons.insert_drive_file_outlined,
-                      color: AppColors.oceanBlue,
-                    ),
-                    title: Text(
-                      archivo.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    subtitle: Text(
-                      '${(archivo.size / 1024).toStringAsFixed(1)} KB',
-                    ),
-                    trailing: IconButton(
-                      tooltip: 'Quitar ${archivo.name}',
-                      onPressed: _enviando
-                          ? null
-                          : () => setState(() {
-                                _adjuntosSeleccionados.removeAt(index);
-                              }),
-                      icon: const Icon(
-                        Icons.close_rounded,
-                        color: Colors.redAccent,
+                  return Material(
+                    color: Colors.transparent,
+                    child: ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      visualDensity: VisualDensity.compact,
+                      leading: Icon(
+                        _esImagenLocal(archivo)
+                            ? Icons.image_rounded
+                            : Icons.insert_drive_file_outlined,
+                        color: AppColors.oceanBlue,
+                      ),
+                      title: Text(
+                        archivo.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text(
+                        '${(archivo.size / 1024).toStringAsFixed(1)} KB',
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (_esImagenLocal(archivo))
+                            IconButton(
+                              tooltip: 'Ver imagen',
+                              visualDensity: VisualDensity.compact,
+                              onPressed: _enviando
+                                  ? null
+                                  : () => _verImagenLocal(archivo),
+                              icon: const Icon(
+                                Icons.visibility_rounded,
+                                color: AppColors.oceanBlue,
+                                size: 20,
+                              ),
+                            ),
+                          IconButton(
+                            tooltip: 'Quitar ${archivo.name}',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: _enviando
+                                ? null
+                                : () => setState(() {
+                                      _adjuntosSeleccionados.removeAt(index);
+                                    }),
+                            icon: const Icon(
+                              Icons.close_rounded,
+                              color: Colors.redAccent,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   );
@@ -684,10 +1156,14 @@ class _PqrFormScreenState extends State<PqrFormScreen> {
                               child: CircularProgressIndicator(
                                   color: Colors.white, strokeWidth: 2),
                             )
-                          : const Icon(Icons.send_rounded),
+                          : Icon(_modoEdicion
+                              ? Icons.save_rounded
+                              : Icons.send_rounded),
                       label: Text(_enviando
-                          ? 'Radicando en el sistema...'
-                          : 'Radicar PQR'),
+                          ? (_modoEdicion
+                              ? 'Guardando cambios...'
+                              : 'Radicando en el sistema...')
+                          : (_modoEdicion ? 'Guardar cambios' : 'Radicar PQR')),
                     ),
                   ),
                 ],

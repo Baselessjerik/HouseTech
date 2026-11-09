@@ -102,13 +102,155 @@ class PqrAdjuntoModel {
   }
 }
 
+/// Responsable habilitado para recibir la asignación de una PQR.
+class PqrResponsable {
+  final int id;
+  final String nombreCompleto;
+  final String email;
+
+  const PqrResponsable({
+    required this.id,
+    required this.nombreCompleto,
+    required this.email,
+  });
+
+  factory PqrResponsable.fromJson(Map<String, dynamic> json) {
+    final nombres = json['nombres'] as String? ?? '';
+    final apellidos = json['apellidos'] as String? ?? '';
+
+    return PqrResponsable(
+      id: json['id'] as int,
+      nombreCompleto: '$nombres $apellidos'.trim(),
+      email: json['email'] as String? ?? '',
+    );
+  }
+}
+
+/// Respuesta o solución formal registrada para una solicitud PQR.
+class PqrRespuestaModel {
+  final int id;
+  final String respuesta;
+  final bool esSolucion;
+  final String? responsableNombre;
+  final String fechaCreacion;
+
+  const PqrRespuestaModel({
+    required this.id,
+    required this.respuesta,
+    required this.esSolucion,
+    required this.responsableNombre,
+    required this.fechaCreacion,
+  });
+
+  factory PqrRespuestaModel.fromJson(Map<String, dynamic> json) {
+    return PqrRespuestaModel(
+      id: json['id'] as int,
+      respuesta: json['respuesta'] as String? ?? '',
+      esSolucion: json['es_solucion'] as bool? ?? false,
+      responsableNombre: json['responsable_nombre'] as String?,
+      fechaCreacion: json['created_at'] as String? ?? '',
+    );
+  }
+}
+
+/// Evento de auditoría devuelto por el historial de una PQR.
+class PqrHistorialModel {
+  final int id;
+  final String? estadoAnteriorCodigo;
+  final String? estadoNuevoCodigo;
+  final String? responsableNombre;
+  final String? usuarioNombre;
+  final String comentario;
+  final String fecha;
+
+  const PqrHistorialModel({
+    required this.id,
+    required this.estadoAnteriorCodigo,
+    required this.estadoNuevoCodigo,
+    required this.responsableNombre,
+    required this.usuarioNombre,
+    required this.comentario,
+    required this.fecha,
+  });
+
+  factory PqrHistorialModel.fromJson(Map<String, dynamic> json) {
+    return PqrHistorialModel(
+      id: json['id'] as int,
+      estadoAnteriorCodigo: json['estado_anterior_codigo'] as String?,
+      estadoNuevoCodigo: json['estado_nuevo_codigo'] as String?,
+      responsableNombre: json['responsable_nombre'] as String?,
+      usuarioNombre: json['usuario_nombre'] as String?,
+      comentario: json['comentario'] as String? ?? '',
+      fecha: json['fecha'] as String? ?? '',
+    );
+  }
+
+  String get titulo {
+    final texto = comentario.trim();
+    if (texto.isEmpty) return 'Actualización de la solicitud';
+    if (texto == 'PQR radicada') return 'Solicitud radicada';
+    if (texto == 'Cambio de estado') return 'Estado actualizado';
+    if (texto == 'Cambio de responsable') return 'Responsable asignado';
+    if (texto.startsWith('PQR editada')) return 'Solicitud editada';
+    if (texto.startsWith('Respuesta registrada')) {
+      return texto.replaceAll('.', '');
+    }
+    if (texto.startsWith('Adjunto cargado:')) return 'Adjunto cargado';
+    if (texto.startsWith('Adjunto reemplazado:')) return 'Adjunto reemplazado';
+    if (texto.startsWith('Adjunto eliminado:')) return 'Adjunto eliminado';
+    if (texto.startsWith('PQR anulada. Motivo:')) return 'Solicitud anulada';
+    if (texto.startsWith('Respuesta del solicitante')) {
+      return 'Respuesta del solicitante';
+    }
+    return texto;
+  }
+
+  String? get detalle {
+    final texto = comentario.trim();
+    if (texto.startsWith('PQR anulada. Motivo:')) {
+      return 'Motivo: ${texto.substring('PQR anulada. Motivo:'.length).trim()}';
+    }
+    if (texto.startsWith('PQR editada;')) {
+      return texto.replaceFirst(
+          'PQR editada; campos modificados: ', 'Campos modificados: ');
+    }
+    for (final prefijo in [
+      'Adjunto cargado: ',
+      'Adjunto reemplazado: ',
+      'Adjunto eliminado: ',
+    ]) {
+      if (texto.startsWith(prefijo)) {
+        return texto.substring(prefijo.length).replaceAll(RegExp(r'\.$'), '');
+      }
+    }
+    if (estadoAnteriorCodigo != null &&
+        estadoNuevoCodigo != null &&
+        estadoAnteriorCodigo != estadoNuevoCodigo) {
+      return '${_nombreEstado(estadoAnteriorCodigo!)} → '
+          '${_nombreEstado(estadoNuevoCodigo!)}';
+    }
+    return null;
+  }
+
+  String? get actorNombre {
+    final nombre = usuarioNombre?.trim();
+    if (nombre != null && nombre.isNotEmpty) return nombre;
+    final responsable = responsableNombre?.trim();
+    return responsable == null || responsable.isEmpty ? null : responsable;
+  }
+
+  static String _nombreEstado(String codigo) =>
+      PqrEstado.fromCodigo(codigo).label;
+}
+
 /// Estados de la PQR en el flujo residencial.
 enum PqrEstado {
   enviado('Recibida', Icons.inbox_rounded),
   recibido('En revisión', Icons.visibility_outlined),
   visto('En proceso', Icons.pending_actions_rounded),
   respondido('Atendida', Icons.forum_outlined),
-  resuelto('Cerrada', Icons.check_circle_outline);
+  resuelto('Cerrada', Icons.check_circle_outline),
+  anulado('Anulada', Icons.cancel_outlined);
 
   final String label;
   final IconData icon;
@@ -121,6 +263,7 @@ enum PqrEstado {
         PqrEstado.visto => PqrEstado.respondido,
         PqrEstado.respondido => PqrEstado.resuelto,
         PqrEstado.resuelto => null,
+        PqrEstado.anulado => null,
       };
 
   /// Código de backend correspondiente al siguiente estado del flujo.
@@ -130,6 +273,7 @@ enum PqrEstado {
         PqrEstado.visto => 'ATENDIDA',
         PqrEstado.respondido => 'CERRADA',
         PqrEstado.resuelto => null,
+        PqrEstado.anulado => null,
       };
 
   /// Color usado en chips e indicadores según el estado del trámite.
@@ -137,7 +281,9 @@ enum PqrEstado {
       ? okGreen
       : this == respondido
           ? primaryBlue
-          : accentSun;
+          : this == anulado
+              ? Colors.redAccent
+              : accentSun;
 
   /// Traduce el código estable de backend al estado mostrado por la aplicación.
   ///
@@ -155,6 +301,8 @@ enum PqrEstado {
         return PqrEstado.respondido;
       case 'CERRADA':
         return PqrEstado.resuelto;
+      case 'ANULADA':
+        return PqrEstado.anulado;
       default:
         return PqrEstado.enviado;
     }
@@ -171,7 +319,13 @@ class Pqr {
   final String descripcion;
   final PqrEstado estado;
   final String prioridad;
+  final String? solicitanteNombre;
+  final int? solicitanteId;
   final String? inmuebleCodigo;
+  final int? inmuebleId;
+  final String? fechaCierre;
+  final int? responsableId;
+  final String? responsableNombre;
   final String? respuesta;
   final List<(PqrEstado, String)> historial;
 
@@ -184,7 +338,13 @@ class Pqr {
     this.id,
     this.descripcion = '',
     this.prioridad = 'MEDIA',
+    this.solicitanteNombre,
+    this.solicitanteId,
     this.inmuebleCodigo,
+    this.inmuebleId,
+    this.fechaCierre,
+    this.responsableId,
+    this.responsableNombre,
     this.respuesta,
     this.historial = const [],
   });
@@ -207,13 +367,20 @@ class Pqr {
       id: json['id'] as int?,
       descripcion: json['descripcion'] as String? ?? '',
       prioridad: json['prioridad'] as String? ?? 'MEDIA',
+      solicitanteNombre: json['solicitante_nombre'] as String?,
+      solicitanteId: json['solicitante_id'] as int?,
       inmuebleCodigo: json['inmueble_codigo'] as String?,
+      inmuebleId: json['inmueble_id'] as int?,
+      fechaCierre: json['fecha_cierre'] as String?,
+      responsableId: json['responsable_id'] as int?,
+      responsableNombre: json['responsable_nombre'] as String?,
       respuesta: json['respuesta'] as String?,
     );
   }
 
   /// Indica si el trámite todavía no se encuentra cerrado.
-  bool get abierta => estado != PqrEstado.resuelto;
+  bool get abierta =>
+      estado != PqrEstado.resuelto && estado != PqrEstado.anulado;
 
   /// Agrupa las categorías que se resaltan como reclamo en la interfaz.
   bool get esQueja => tipo == 'Queja' || tipo == 'Reclamo';

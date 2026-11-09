@@ -211,7 +211,15 @@ class _AppShellState extends ConsumerState<AppShell> {
         _MenuItem(
           'Gestionar PQR',
           Icons.support_agent_rounded,
-          (_) => const PqrsTableScreen(puedeGestionarEstados: true),
+          (user) => PqrsTableScreen(
+            key: ValueKey(
+              'pqr-manager-${user.id}-${user.roles.join("-")}',
+            ),
+            puedeGestionarEstados: user.tienePermiso('pqr.gestionar'),
+            puedeAsignarResponsable: user.tienePermiso('usuarios.gestionar'),
+            usuarioId: user.id,
+            esAdministrador: user.tienePermiso('usuarios.gestionar'),
+          ),
         ),
       );
     } else {
@@ -219,7 +227,10 @@ class _AppShellState extends ConsumerState<AppShell> {
         'pqr.radicar',
         'Mis PQRs',
         Icons.rate_review_rounded,
-        (_) => const PqrsTableScreen(),
+        (user) => PqrsTableScreen(
+          key: ValueKey('pqr-residente-${user.id}'),
+          usuarioId: user.id,
+        ),
       );
     }
     add('reservas.solicitar', 'Solicitar reserva',

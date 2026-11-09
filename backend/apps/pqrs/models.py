@@ -165,7 +165,7 @@ class PQRRespuesta(models.Model):
 
 
 class PQRHistorial(models.Model):
-    """Trazabilidad de cambios de estado y asignaciones (manejado por triggers)."""
+    """Trazabilidad de eventos PQR, cambios de estado y asignaciones."""
 
     pqr = models.ForeignKey(
         PQR,
