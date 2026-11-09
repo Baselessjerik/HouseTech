@@ -84,6 +84,41 @@ class _FakePqrService extends PqrService {
 }
 
 void main() {
+  testWidgets('Muestra una fecha legible al editar una PQR',
+      (WidgetTester tester) async {
+    final service = _FakePqrService();
+    final pqr = Pqr(
+      'QUE-2026-000001',
+      'Queja',
+      'Ruido en zona común',
+      '2026-10-19T00:00:00Z',
+      PqrEstado.enviado,
+      id: 42,
+      descripcion: 'El ruido persiste durante la noche.',
+      prioridad: 'MEDIA',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: PqrFormScreen(
+              service: service,
+              pqrInicial: pqr,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(
+      find.textContaining('19/10/2026, 00:00'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('2026-10-19T00:00:00Z'), findsNothing);
+  });
+
   // La validación de campos debe aparecer en el formulario simultáneamente.
   testWidgets('Verifica renderizado y validación del formulario de PQR',
       (WidgetTester tester) async {
@@ -105,7 +140,7 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    expect(find.text('Registrar PQR mediante formulario'), findsOneWidget);
+    expect(find.text('Nueva solicitud'), findsOneWidget);
     expect(find.text('Petición'), findsOneWidget);
     expect(find.text('Queja'), findsOneWidget);
     expect(find.text('Reclamo'), findsOneWidget);

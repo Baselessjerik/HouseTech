@@ -16,6 +16,11 @@ class _FakePqrService extends PqrService {
   bool? marcadaComoSolucion;
 
   @override
+  Future<List<PqrAdjuntoModel>> obtenerAdjuntosPqr(int pqrId) async {
+    return const [];
+  }
+
+  @override
   Future<List<PqrHistorialModel>> obtenerHistorialPqr(int pqrId) async {
     return historial;
   }
@@ -111,6 +116,8 @@ void main() {
       service: service,
       puedeResponder: false,
     );
+    await tester.tap(find.text('Seguimiento'));
+    await tester.pumpAndSettle();
 
     expect(find.text('Historial de cambios'), findsOneWidget);
     expect(find.text('Solicitud radicada'), findsOneWidget);
@@ -128,6 +135,8 @@ void main() {
       service: service,
       puedeResponder: true,
     );
+    await tester.tap(find.text('Respuestas'));
+    await tester.pumpAndSettle();
 
     expect(find.text('Respuestas y soluciones'), findsOneWidget);
     expect(find.text('Registrar respuesta'), findsOneWidget);
@@ -155,7 +164,11 @@ void main() {
     expect(service.marcadaComoSolucion, isTrue);
     expect(find.text('Solución'), findsOneWidget);
     expect(find.text('Se reparó la luminaria.'), findsOneWidget);
-    expect(find.text('Atendida'), findsNothing);
+    expect(find.text('Recibida'), findsWidgets);
+    expect(find.text('En revisión'), findsOneWidget);
+    expect(find.text('En proceso'), findsOneWidget);
+    expect(find.text('Atendida'), findsOneWidget);
+    expect(find.text('Cerrada'), findsOneWidget);
   });
 
   testWidgets('permite consultar respuestas sin mostrar el formulario',
@@ -176,6 +189,8 @@ void main() {
       service: service,
       puedeResponder: false,
     );
+    await tester.tap(find.text('Respuestas'));
+    await tester.pumpAndSettle();
 
     expect(find.text('El equipo revisará la solicitud.'), findsOneWidget);
     expect(find.text('Registrar respuesta'), findsNothing);

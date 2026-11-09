@@ -39,7 +39,7 @@ class _ProfileTileState extends State<ProfileTile> {
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
               color: widget.abierto
-                  ? primaryBlue.withOpacity(.45)
+                  ? primaryBlue.withValues(alpha: 0.45)
                   : Colors.transparent,
             ),
           ),

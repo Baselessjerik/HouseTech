@@ -5,7 +5,7 @@ import '../../models/pqr_model.dart';
 import '../../services/pqr_service.dart';
 import '../../services/pqr_file_saver.dart';
 
-/// Abre el detalle desplazable de una PQR, sus respuestas y soluciones.
+// Abre el detalle desplazable de una PQR, sus respuestas y soluciones.
 void verDetalle(
   BuildContext context,
   Pqr p, {
@@ -24,6 +24,7 @@ void verDetalle(
       ),
     );
 
+// Hoja de detalle de PQR con pestañas de información, respuestas y seguimiento.
 class _PqrDetailSheet extends StatefulWidget {
   final Pqr pqr;
   final PqrService service;
@@ -41,6 +42,7 @@ class _PqrDetailSheet extends StatefulWidget {
   State<_PqrDetailSheet> createState() => _PqrDetailSheetState();
 }
 
+// Estado interno de la hoja de detalle de PQR.
 class _PqrDetailSheetState extends State<_PqrDetailSheet> {
   List<PqrRespuestaModel> _respuestas = [];
   List<PqrHistorialModel> _historial = [];
@@ -64,6 +66,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
   String? _errorCargaAdjuntos;
   String? _errorRespuesta;
 
+  // Desplaza la lista de respuestas hacia abajo para mostrar la más reciente.
   void _scrollRespuestasAbajo() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_respuestasScrollController.hasClients) {
@@ -76,6 +79,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
     });
   }
 
+  // Componente de la sección de registro de respuesta con campo de texto y adjuntos.
   Widget _compositorRespuesta() {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -291,7 +295,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
       ),
     );
   }
-
+  // Componente de la sección de historial de seguimiento con lista de eventos.
   @override
   void initState() {
     super.initState();
@@ -299,14 +303,14 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
     _cargarHistorial();
     _cargarAdjuntos();
   }
-
+  // Libera los controladores de texto y scroll al cerrar la hoja de detalle.
   @override
   void dispose() {
     _respuestaController.dispose();
     _respuestasScrollController.dispose();
     super.dispose();
   }
-
+  // Carga las respuestas de la PQR desde el servicio y actualiza el estado.
   Future<void> _cargarRespuestas() async {
     final pqrId = widget.pqr.id;
     if (pqrId == null) {
@@ -316,7 +320,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
       });
       return;
     }
-
+    // Indica que se está cargando las respuestas y limpia cualquier error previo.
     setState(() {
       _cargandoRespuestas = true;
       _errorCargaRespuestas = null;
@@ -336,7 +340,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
       });
     }
   }
-
+  // Carga el historial de la PQR desde el servicio y actualiza el estado.
   Future<void> _cargarHistorial() async {
     final pqrId = widget.pqr.id;
     if (pqrId == null) {
@@ -345,7 +349,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
       });
       return;
     }
-
+    // Indica que se está cargando el historial y limpia cualquier error previo.
     setState(() {
       _cargandoHistorial = true;
       _errorCargaHistorial = null;
@@ -365,14 +369,14 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
       });
     }
   }
-
+  // Carga los adjuntos de la PQR desde el servicio y actualiza el estado.
   Future<void> _cargarAdjuntos() async {
     final pqrId = widget.pqr.id;
     if (pqrId == null) {
       setState(() => _cargandoAdjuntos = false);
       return;
     }
-
+    // Indica que se está cargando los adjuntos y limpia cualquier error previo.
     setState(() {
       _cargandoAdjuntos = true;
       _errorCargaAdjuntos = null;
@@ -392,7 +396,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
       });
     }
   }
-
+  // Determina si un adjunto es una imagen basada en su tipo MIME o extensión de archivo.
   bool _esImagen(PqrAdjuntoModel adjunto) {
     final mime = adjunto.tipoMime.toLowerCase();
     final nombre = adjunto.nombreArchivo.toLowerCase();
@@ -401,7 +405,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
         nombre.endsWith('.jpeg') ||
         nombre.endsWith('.png');
   }
-
+  // Muestra una vista previa de la imagen adjunta en un diálogo con zoom y opción de cerrar.
   Future<void> _verImagenAdjunta(PqrAdjuntoModel adjunto) async {
     final pqrId = widget.pqr.id;
     if (pqrId == null) return;
@@ -414,7 +418,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
         child: CircularProgressIndicator(color: Colors.white),
       ),
     );
-
+    // Intentar descargar el adjunto y mostrarlo en un diálogo con zoom
     try {
       final bytes = await widget.service.descargarAdjuntoPqr(
         pqrId: pqrId,
@@ -490,7 +494,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
       );
     }
   }
-
+  // Convierte una fecha en formato ISO 8601 a un formato legible "dd/MM/yyyy, HH:mm".
   String _fechaLegible(String fecha) {
     final parsed = DateTime.tryParse(fecha)?.toLocal();
     if (parsed == null) return fecha;
@@ -500,7 +504,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
     final minuto = parsed.minute.toString().padLeft(2, '0');
     return '$dia/$mes/${parsed.year}, $hora:$minuto';
   }
-
+  // Descarga un adjunto de la PQR y lo guarda en el dispositivo, mostrando un mensaje de éxito o error.
   Future<void> _descargarAdjunto(PqrAdjuntoModel adjunto) async {
     final pqrId = widget.pqr.id;
     if (pqrId == null) return;
@@ -531,7 +535,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
       );
     }
   }
-
+  // Permite al usuario seleccionar archivos adjuntos para la respuesta, filtrando por tipo y tamaño, y actualiza el estado con los archivos válidos o errores.
   Future<void> _seleccionarAdjuntosRespuesta() async {
     try {
       final resultado = await FilePicker.platform.pickFiles(
@@ -562,7 +566,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
       });
     }
   }
-
+  // Registra la respuesta de la PQR, sube los adjuntos si los hay, actualiza el estado y muestra mensajes de éxito o error.
   Future<void> _registrarRespuesta() async {
     final pqrId = widget.pqr.id;
     final texto = _respuestaController.text.trim();
@@ -573,7 +577,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
         _subiendoAdjuntos) {
       return;
     }
-
+    // Indica que se está guardando la respuesta y subiendo adjuntos, y limpia cualquier error previo.
     setState(() {
       _guardandoRespuesta = true;
       _subiendoAdjuntos = archivos.isNotEmpty;
@@ -582,7 +586,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
       _respuestaController.clear();
       _adjuntosRespuesta = [];
     });
-
+    // Intentar registrar la respuesta y subir los adjuntos, manejando errores y actualizando el estado.
     try {
       var textoRespuesta = texto;
       if (archivos.isNotEmpty) {
@@ -598,7 +602,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
         esSolucion: _esSolucion,
       );
       if (!mounted) return;
-
+      // Intentar subir los adjuntos y recopilar errores si los hay
       final erroresAdjuntos = <String>[];
       final adjuntosEnviados = <PqrAdjuntoModel>[];
       if (archivos.isNotEmpty) {
@@ -617,7 +621,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
         }
       }
       if (!mounted) return;
-
+      // Actualiza el estado con la nueva respuesta, los adjuntos enviados y cualquier error de adjuntos.
       setState(() {
         _esSolucion = false;
         if (!_respuestas.any((r) => r.id == nuevaRespuesta.id)) {
@@ -631,7 +635,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
               'La respuesta se guardó, pero hubo errores: ${erroresAdjuntos.join("; ")}';
         }
       });
-
+      // Cargar nuevamente los adjuntos y el historial para reflejar los cambios recientes.
       if (archivos.isNotEmpty) {
         await _cargarAdjuntos();
       }
@@ -658,7 +662,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
       }
     }
   }
-
+  // Construye la interfaz de usuario del diálogo de detalle de PQR con pestañas y contenido dinámico según el estado.
   @override
   Widget build(BuildContext context) {
     final p = widget.pqr;
@@ -796,14 +800,14 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
       ),
     );
   }
-
+  // Construye el contenido principal del detalle de PQR con pestañas y contenido dinámico según la selección.
   Widget _contenidoPrincipal(Pqr p, {bool modoCompacto = false}) {
     final tabs = const [
       ('Información', Icons.info_outline_rounded),
       ('Respuestas', Icons.forum_outlined),
       ('Seguimiento', Icons.route_outlined),
     ];
-
+    // Construye la interfaz de usuario del contenido principal con pestañas y contenido dinámico según la selección.
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -953,7 +957,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
       ),
     );
   }
-
+  // Construye la vista de información de la PQR con tarjetas de resumen y detalles de campos.
   Widget _vistaInformacion(Pqr p) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1089,7 +1093,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
       ],
     );
   }
-
+  // Convierte el valor de prioridad a un nombre legible para mostrar en la interfaz.
   String _nombrePrioridad(String prioridad) {
     switch (prioridad.toUpperCase()) {
       case 'ALTA':
@@ -1100,7 +1104,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
         return 'Media';
     }
   }
-
+  // Convierte el valor de prioridad a un color específico para mostrar en la interfaz.
   Color _colorPrioridad(String prioridad) {
     switch (prioridad.toUpperCase()) {
       case 'ALTA':
@@ -1111,7 +1115,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
         return accentSun;
     }
   }
-
+  // Construye una tarjeta de resumen con etiqueta, valor e ícono, estilizada con colores y bordes.
   Widget _tarjetaResumen(
     String etiqueta,
     String valor,
@@ -1170,7 +1174,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
       ),
     );
   }
-
+  // Construye una tarjeta de detalle de campo con etiqueta, valor e ícono, estilizada con colores y bordes.
   Widget _detalleCampoCard(String etiqueta, String valor, IconData icono) {
     return Container(
       height: 66,
@@ -1215,7 +1219,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
       ),
     );
   }
-
+  // Construye la sección de adjuntos de la PQR, mostrando un indicador de carga, mensaje de error o lista de archivos con opciones para ver o descargar.
   Widget _contenidoAdjuntos() {
     if (_cargandoAdjuntos) {
       return const Padding(
@@ -1239,7 +1243,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
         style: TextStyle(fontSize: 12, color: Colors.black54),
       );
     }
-
+    //  Construye la lista de adjuntos con íconos, nombres de archivo y botones para ver o descargar según el tipo de archivo.
     return Wrap(
       spacing: 6,
       runSpacing: 6,
@@ -1301,7 +1305,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
       ],
     );
   }
-
+  // Construye la vista de respuestas y soluciones de la PQR, mostrando un listado de respuestas y un compositor para agregar nuevas respuestas si el usuario tiene permisos.
   Widget _vistaRespuestas({bool modoCompacto = false}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1353,7 +1357,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
       ],
     );
   }
-
+  // Construye la lista de respuestas con un compositor para agregar nuevas respuestas si el usuario tiene permisos, mostrando un Scrollbar y un SingleChildScrollView para desplazamiento.
   Widget _listaRespuestasConCompositor() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1377,7 +1381,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
       ],
     );
   }
-
+  // Construye el panel de estado de la PQR, mostrando el estado actual, el progreso y los estados anteriores si la PQR ha sido anulada.
   Widget _panelEstado(Pqr p) {
     final estadoActual = PqrEstado.values.indexOf(p.estado);
     final esAnulada = p.estado == PqrEstado.anulado;
@@ -1502,7 +1506,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
       ),
     );
   }
-
+  // Construye un ítem de estado en el panel de estado, mostrando un círculo con color e ícono según el estado, y el texto del estado.
   Widget _estadoItem(
     String texto, {
     required Color color,
@@ -1548,7 +1552,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
       ),
     );
   }
-
+  // Construye el contenido del historial de eventos de la PQR, mostrando un indicador de carga, mensaje de error o lista de eventos según el estado de la carga.
   Widget _contenidoHistorial(Pqr pqr) {
     if (pqr.id == null) {
       return Column(
@@ -1567,14 +1571,14 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
         ],
       );
     }
-
+    // Si la PQR tiene un ID, se carga el historial desde el servidor y se muestra según el estado de la carga.
     if (_cargandoHistorial) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 16),
         child: Center(child: CircularProgressIndicator()),
       );
     }
-
+    //  Si hubo un error al cargar el historial, se muestra un mensaje de error y un botón para reintentar la carga.
     if (_errorCargaHistorial != null) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,

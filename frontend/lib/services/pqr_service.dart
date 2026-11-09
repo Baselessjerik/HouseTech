@@ -134,9 +134,9 @@ class PqrService {
   /// comportamiento de carga actual de las pantallas PQR.
   Future<List<Pqr>> obtenerMisPqrs() async {
     try {
+      final uri = Uri.parse(ApiConfig.pqrsUrl);
       final response = await _authenticatedRequest(
-        () async =>
-            http.get(Uri.parse(ApiConfig.pqrsUrl), headers: await _headers()),
+        () async => http.get(uri, headers: await _headers()),
       );
       if (response.statusCode == 200) {
         final decoded = jsonDecode(utf8.decode(response.bodyBytes));
@@ -184,15 +184,20 @@ class PqrService {
   }
 
   /// Avanza el estado de una PQR mediante el endpoint protegido del backend.
-  Future<Pqr> cambiarEstadoPqr({
+    Future<Pqr> cambiarEstadoPqr({
     required int pqrId,
     required String estadoCodigo,
+    String? motivo,
   }) async {
     final response = await _authenticatedRequest(
       () async => http.patch(
         Uri.parse('${ApiConfig.pqrsUrl}$pqrId/estado/'),
         headers: await _headers(),
-        body: jsonEncode({'estado_codigo': estadoCodigo}),
+        body: jsonEncode({
+          'estado_codigo': estadoCodigo,
+          if (motivo != null && motivo.trim().isNotEmpty)
+            'motivo': motivo.trim(),
+        }),
       ),
     );
 
@@ -664,6 +669,34 @@ class PqrService {
   }
 
   /// Actualiza asunto, descripción o prioridad de una PQR aún editable.
+  Future<Map<String, dynamic>> cambiarPrioridadPqr({
+    required int id,
+    required String prioridad,
+  }) async {
+    try {
+      final response = await _authenticatedRequest(
+        () async => http.patch(
+          Uri.parse('${ApiConfig.pqrsUrl}$id/'),
+          headers: await _headers(),
+          body: jsonEncode({'prioridad': prioridad}),
+        ),
+      );
+
+      final data = response.body.isEmpty
+          ? <String, dynamic>{}
+          : jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+
+      if (response.statusCode == 200) {
+        final pqrActualizada = await obtenerDetallePqr(id);
+        return {'success': true, 'pqr': pqrActualizada};
+      }
+      return {'success': false, 'message': _extraerError(data)};
+    } catch (_) {
+      return {'success': false, 'message': 'Error al cambiar la prioridad.'};
+    }
+  }
+
+  /// Actualiza asunto, descripción o prioridad de una PQR aún editable.
   Future<Map<String, dynamic>> actualizarPqr({
     required int id,
     required int tipoId,
@@ -702,7 +735,7 @@ class PqrService {
     }
   }
 
-  /// Elimina una PQR; el servidor decide si el estado permite borrarla.
+  /// Elimina físicamente una PQR según las reglas de estado y rol.
   Future<Map<String, dynamic>> eliminarPqr(int id) async {
     try {
       final response = await _authenticatedRequest(
