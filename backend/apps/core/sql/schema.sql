@@ -728,6 +728,7 @@ BEGIN;
    ('PQR','EN_PROCESO',  'En proceso',  3, FALSE, FALSE),
    ('PQR','ATENDIDA',    'Atendida',    4, FALSE, FALSE),
    ('PQR','CERRADA',     'Cerrada',     5, FALSE, TRUE),
+   ('PQR', 'ANULADA', 'Anulada', 6, FALSE, TRUE),
    ('RESERVA','SOLICITADA',  'Solicitada',  1, TRUE,  FALSE),
    ('RESERVA','CONFIRMADA',  'Confirmada',  2, FALSE, FALSE),
    ('RESERVA','FINALIZADA',  'Finalizada',  3, FALSE, TRUE),
