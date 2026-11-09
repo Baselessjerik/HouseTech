@@ -1,16 +1,32 @@
-from rest_framework import serializers
+import logging
 from pathlib import PurePosixPath
 from uuid import uuid4
-import logging
 
 from django.core.files.storage import default_storage
 from django.db import DatabaseError, transaction
+from rest_framework import serializers
+
 from apps.core.models import Estado
 from apps.inmuebles.models import Inmueble, InmuebleUsuario
 from apps.usuarios.models import Usuario
 from .models import PQR, PQRAdjunto, PQRHistorial, PQRRespuesta, TipoPQR
 
 logger = logging.getLogger(__name__)
+
+# Política inicial de carga. Confírmala con el negocio antes de producción:
+# hasta 10 MiB por archivo, en formatos PDF, JPEG o PNG.
+TAMANO_MAXIMO_ADJUNTO = 10 * 1024 * 1024
+
+# Por cada extensión se fija el MIME canónico y la firma binaria que debe traer el archivo.
+TIPOS_ADJUNTO_PERMITIDOS = {
+    ".pdf": ("application/pdf", lambda contenido: contenido.startswith(b"%PDF-")),
+    ".jpg": ("image/jpeg", lambda contenido: contenido.startswith(b"\xff\xd8\xff")),
+    ".jpeg": ("image/jpeg", lambda contenido: contenido.startswith(b"\xff\xd8\xff")),
+    ".png": (
+        "image/png",
+        lambda contenido: contenido.startswith(b"\x89PNG\r\n\x1a\n"),
+    ),
+}
 
 
 class TipoPQRSerializer(serializers.ModelSerializer):
@@ -37,10 +53,12 @@ class PQRDetalleSerializer(serializers.ModelSerializer):
     """Respuesta tras radicar o consultar el detalle de una PQR."""
 
     tipo = TipoPQRSerializer(read_only=True)
+    solicitante_id = serializers.IntegerField(read_only=True)
     estado_codigo = serializers.CharField(source="estado.codigo", read_only=True)
     estado_nombre = serializers.CharField(source="estado.nombre", read_only=True)
     solicitante_nombre = serializers.CharField(source="solicitante.nombre_completo", read_only=True)
     inmueble_codigo = serializers.CharField(source="inmueble.codigo_interno", read_only=True, default=None)
+    inmueble_id = serializers.IntegerField(read_only=True, allow_null=True)
     responsable_id = serializers.IntegerField(read_only=True, allow_null=True)
     responsable_nombre = serializers.CharField(
         source="responsable.nombre_completo",
@@ -56,6 +74,7 @@ class PQRDetalleSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "radicado",
+            "solicitante_id",
             "tipo",
             "asunto",
             "descripcion",
@@ -64,6 +83,7 @@ class PQRDetalleSerializer(serializers.ModelSerializer):
             "estado_nombre",
             "solicitante_nombre",
             "inmueble_codigo",
+            "inmueble_id",
             "responsable_id",
             "responsable_nombre",
             "fecha_radicacion",
@@ -163,6 +183,7 @@ class PQRTransicionEstadoSerializer(serializers.Serializer):
             ("EN_PROCESO", "En proceso"),
             ("ATENDIDA", "Atendida"),
             ("CERRADA", "Cerrada"),
+            ("ANULADA", "Anulada"),
         ]
     )
 
@@ -240,6 +261,12 @@ class PQRRegistroSerializer(serializers.ModelSerializer):
         """Asigna solicitante y estado inicial antes de persistir la PQR."""
         # 1. Asignar solicitante: el usuario autenticado (nadie radica a nombre de otro)
         solicitante = self.context["request"].user
+        puede_gestionar = solicitante.tiene_permiso("pqr.gestionar")
+
+        # La prioridad la asigna administración. Los residentes solo pueden radicar
+        # la solicitud; el valor base MEDIA permanece hasta una clasificación posterior.
+        if not puede_gestionar:
+            validated_data.pop("prioridad", None)
 
         # 2. Asignar estado inicial configurado en base de datos para el proceso PQR (RECIBIDA)
         estado_inicial = Estado.objects.filter(proceso="PQR", es_inicial=True).first()
@@ -260,20 +287,12 @@ class PQRRegistroSerializer(serializers.ModelSerializer):
         pqr.refresh_from_db()
         return pqr
 
-# Política inicial de carga. Confírmala con el negocio antes de producción:
-# hasta 10 MiB por archivo, en formatos PDF, JPEG o PNG.
-TAMANO_MAXIMO_ADJUNTO = 10 * 1024 * 1024
-
-# Por cada extensión se fija el MIME canónico y la firma binaria que debe traer el archivo.
-TIPOS_ADJUNTO_PERMITIDOS = {
-    ".pdf": ("application/pdf", lambda contenido: contenido.startswith(b"%PDF-")),
-    ".jpg": ("image/jpeg", lambda contenido: contenido.startswith(b"\xff\xd8\xff")),
-    ".jpeg": ("image/jpeg", lambda contenido: contenido.startswith(b"\xff\xd8\xff")),
-    ".png": (
-        "image/png",
-        lambda contenido: contenido.startswith(b"\x89PNG\r\n\x1a\n"),
-    ),
-}
+    def update(self, instance, validated_data):
+        """Impide que residentes alteren la prioridad en una solicitud existente."""
+        usuario = self.context["request"].user
+        if not usuario.tiene_permiso("pqr.gestionar"):
+            validated_data.pop("prioridad", None)
+        return super().update(instance, validated_data)
 
 
 class PQRAdjuntoSerializer(serializers.ModelSerializer):

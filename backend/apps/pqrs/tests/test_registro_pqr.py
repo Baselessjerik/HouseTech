@@ -1,9 +1,8 @@
-import pytest
+﻿import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from rest_framework.test import APIClient
 
-from apps.core.models import Estado
 from apps.pqrs.models import (
     PQR,
     PQRAdjunto,
@@ -141,6 +140,51 @@ class TestRegistroPQR:
             pqr=pqr_db,
             comentario="PQR radicada",
         ).exists()
+
+    def test_residente_no_puede_definir_prioridad_al_radicar(
+        self,
+        residente_client,
+        tipo_peticion,
+    ):
+        """La prioridad enviada por un residente se ignora y queda MEDIA."""
+        respuesta = residente_client.post(
+            "/api/v1/pqrs/",
+            data={
+                "tipo_id": tipo_peticion.id,
+                "asunto": "Solicitud de atención urgente",
+                "descripcion": "Solicito atención de esta situación general.",
+                "prioridad": "ALTA",
+            },
+            format="json",
+        )
+
+        assert respuesta.status_code == 201
+        pqr = PQR.objects.get(id=respuesta.data["id"])
+        assert pqr.prioridad == "MEDIA"
+
+    def test_residente_no_puede_modificar_prioridad(
+        self,
+        residente_client,
+        tipo_peticion,
+    ):
+        """Las ediciones conservan la prioridad asignada por administración."""
+        pqr_id = self._crear_pqr(residente_client, tipo_peticion)
+        pqr = PQR.objects.get(id=pqr_id)
+        pqr.prioridad = "BAJA"
+        pqr.save(update_fields=["prioridad"])
+
+        respuesta = residente_client.patch(
+            f"/api/v1/pqrs/{pqr_id}/",
+            data={
+                "asunto": "Asunto actualizado por el residente",
+                "prioridad": "ALTA",
+            },
+            format="json",
+        )
+
+        assert respuesta.status_code == 200
+        pqr.refresh_from_db()
+        assert pqr.prioridad == "BAJA"
 
     def test_residente_consulta_estado_actual_de_su_pqr(
         self,
@@ -474,14 +518,14 @@ class TestRegistroPQR:
         assert respuesta.status_code == 400
         assert PQR.objects.get(pk=pqr_id).responsable_id is None
 
-    def test_responsable_asignado_registra_respuesta_sin_cambiar_estado(
+    def test_responsable_asignado_registra_respuesta_cierra_pqr(
         self,
         residente_client,
         admin_pqr_client,
         responsable_pqr_client,
         tipo_peticion,
     ):
-        """El asignado registra solución y el estado se mantiene sin cambios."""
+        """El asignado registra solución y la PQR pasa automáticamente a cerrada."""
         pqr_id = self._crear_pqr(residente_client, tipo_peticion)
         responsable = Usuario.objects.get(username="responsable_ciclo_pqr")
         asignacion = admin_pqr_client.patch(
@@ -507,7 +551,7 @@ class TestRegistroPQR:
         assert respuesta.data["es_solucion"] is True
         assert respuesta.data["responsable_nombre"] == responsable.nombre_completo
         assert PQRRespuesta.objects.get(pk=respuesta.data["id"]).responsable_id == responsable.id
-        assert PQR.objects.get(pk=pqr_id).estado.codigo == "RECIBIDA"
+        assert PQR.objects.get(pk=pqr_id).estado.codigo == "CERRADA"
 
         consulta = residente_client.get(
             f"/api/v1/pqrs/{pqr_id}/respuestas/"
@@ -664,7 +708,6 @@ class TestRegistroPQR:
             ("RECLAMO", "REC"),
         ],
     )
-        
     def test_radicado_corresponde_al_tipo(
         self,
         residente_client,

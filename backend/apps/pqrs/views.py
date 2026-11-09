@@ -4,18 +4,24 @@ import logging
 
 from django.core.files.storage import default_storage
 from django.db import DatabaseError, transaction
+from django.db.models import Q
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
-from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, generics, permissions, status
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.permissions import requiere_permiso
 from apps.core.models import Estado
+from apps.core.permissions import requiere_permiso
 from apps.inmuebles.models import Inmueble
-from .models import PQR, PQRAdjunto, PQRHistorial, PQRRespuesta, TipoPQR
+from .models import (
+    PQR,
+    PQRAdjunto,
+    PQRHistorial,
+    PQRRespuesta,
+    TipoPQR,
+)
 from .serializers import (
     InmuebleOpcionSerializer,
     PQRAdjuntoSerializer,
@@ -34,22 +40,41 @@ PuedeAdministrarUsuarios = requiere_permiso("usuarios.gestionar")
 logger = logging.getLogger(__name__)
 
 TRANSICIONES_ESTADO_PQR = {
-    "RECIBIDA": {"EN_REVISION"},
-    "EN_REVISION": {"EN_PROCESO"},
-    "EN_PROCESO": {"ATENDIDA"},
-    "ATENDIDA": {"CERRADA"},
+    "RECIBIDA": {"EN_REVISION", "ANULADA"},
+    "EN_REVISION": {"EN_PROCESO", "ANULADA"},
+    "EN_PROCESO": {"ATENDIDA", "ANULADA"},
+    "ATENDIDA": {"CERRADA", "ANULADA"},
     "CERRADA": set(),
+    "ANULADA": set(),
 }
+
+# Etapas en las que un no administrador puede anular una PQR.
+ESTADOS_ANULABLES_SIN_ADMIN = {"RECIBIDA", "EN_REVISION"}
+
+
+# Relaciones que usan los serializadores de lectura de PQR.
+PQR_RELACIONES = ("tipo", "estado", "solicitante", "inmueble", "responsable")
 
 
 def pqrs_accesibles_para(usuario):
-    """Limita las consultas a las PQR propias o a todas para quien puede gestionarlas."""
+    """Aplica visibilidad según el rol del usuario."""
     queryset = PQR.objects.select_related("estado")
+    roles = set(usuario.codigos_roles())
 
-    if usuario.tiene_permiso("pqr.gestionar"):
+    # 1. Administrador: ve absolutamente todas las PQRs
+    if "ADMIN" in roles:
         return queryset
 
-    return queryset.filter(solicitante=usuario)
+    # 2. Responsable PQR: ve las que le asignaron Y las que él mismo radicó
+    if "RESPONSABLE_PQR" in roles:
+        return queryset.filter(Q(responsable=usuario) | Q(solicitante=usuario))
+
+    # 3. Residente: ve únicamente las PQRs donde él es el solicitante
+    if "RESIDENTE" in roles:
+        return queryset.filter(solicitante=usuario)
+
+    # 4. Caso de seguridad: si no tiene ninguno de esos roles, no ve ninguna PQR
+    return queryset.none()
 
 
 def registrar_evento_pqr(pqr, usuario, comentario):
@@ -85,15 +110,20 @@ class TipoPQRListView(generics.ListAPIView):
 
 
 class MisInmueblesPQRListView(generics.ListAPIView):
-    """Devuelve inmuebles activos con vínculo vigente para el residente autenticado."""
+    """Devuelve inmuebles disponibles para radicar según el rol del usuario."""
 
     serializer_class = InmuebleOpcionSerializer
     permission_classes = [permissions.IsAuthenticated, PuedeRadicarPQR]
     pagination_class = None
 
     def get_queryset(self):
-        """Restringe el selector a inmuebles vinculados actualmente al usuario."""
+        """Los gestores ven todos los inmuebles; el residente solo los vinculados."""
         usuario = self.request.user
+        if usuario.tiene_permiso("pqr.gestionar"):
+            return Inmueble.objects.filter(activo=True).order_by(
+                "torre_bloque",
+                "numero",
+            )
         return Inmueble.objects.filter(
             vinculos__usuario=usuario,
             vinculos__fecha_fin__isnull=True,
@@ -114,22 +144,11 @@ class PQRListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         """Aplica permisos de visibilidad y carga las relaciones usadas por la respuesta."""
-        usuario = self.request.user
-        if usuario.tiene_permiso("pqr.gestionar"):
-            return PQR.objects.select_related(
-                "tipo",
-                "estado",
-                "solicitante",
-                "inmueble",
-                "responsable",
-            ).order_by("-fecha_radicacion")
-        return PQR.objects.filter(solicitante=usuario).select_related(
-            "tipo",
-            "estado",
-            "solicitante",
-            "inmueble",
-            "responsable",
-        ).order_by("-fecha_radicacion")
+        return (
+            pqrs_accesibles_para(self.request.user)
+            .select_related(*PQR_RELACIONES)
+            .order_by("-fecha_radicacion")
+        )
 
     def create(self, request, *args, **kwargs):
         """Persiste la solicitud y devuelve el radicado generado por la base de datos."""
@@ -137,7 +156,6 @@ class PQRListCreateView(generics.ListCreateAPIView):
         serializer.is_valid(raise_exception=True)
         pqr = serializer.save()
         return Response(PQRDetalleSerializer(pqr).data, status=status.HTTP_201_CREATED)
-
 
 class PQRRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     """Permite consultar, editar y eliminar una PQR según sus permisos."""
@@ -152,26 +170,18 @@ class PQRRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         """Evita que un residente acceda a solicitudes de otras personas."""
-        usuario = self.request.user
-        if usuario.tiene_permiso("pqr.gestionar"):
-            return PQR.objects.select_related(
-                "tipo",
-                "estado",
-                "solicitante",
-                "inmueble",
-                "responsable",
-            )
-        return PQR.objects.filter(solicitante=usuario).select_related(
-            "tipo",
-            "estado",
-            "solicitante",
-            "inmueble",
-            "responsable",
-        )
+        return pqrs_accesibles_para(self.request.user).select_related(*PQR_RELACIONES)
 
     def perform_update(self, serializer):
         """Restringe y registra ediciones sin duplicar los eventos del trigger."""
         pqr = serializer.instance
+        
+        # Regla de bloqueo: si está CERRADA, rechaza modificaciones con 400 Bad Request
+        if pqr.estado.codigo == "CERRADA":
+            raise exceptions.ValidationError(
+                {"detail": "Esta solicitud se encuentra cerrada y no admite modificaciones."}
+            )
+
         # Regla de negocio: un residente solo puede editar si sigue en estado RECIBIDA
         if not self.request.user.tiene_permiso("pqr.gestionar") and pqr.estado.codigo != "RECIBIDA":
             raise exceptions.PermissionDenied("Solo puedes editar una PQR mientras esté en estado 'Recibida'.")
@@ -196,26 +206,11 @@ class PQRRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
                     + ", ".join(sorted(campos_modificados)),
                 )
 
-    def perform_destroy(self, instance):
-        """Permite eliminar la PQR y limpia sus archivos tras confirmar la transacción."""
-        if (
-            not self.request.user.tiene_permiso("pqr.gestionar")
-            and instance.estado.codigo != "RECIBIDA"
-        ):
-            raise exceptions.PermissionDenied(
-                "No es posible eliminar una PQR que ya ha sido revisada o atendida."
-            )
-
-        rutas_adjuntos = list(
-            PQRAdjunto.objects.filter(pqr=instance).values_list("ruta", flat=True)
+    def destroy(self, request, *args, **kwargs):
+        """Elimina el borrado físico (Hard Delete): las solicitudes nunca se borran."""
+        raise exceptions.PermissionDenied(
+            "El borrado físico de solicitudes no está permitido en el sistema."
         )
-        with transaction.atomic():
-            instance.delete()
-            for ruta in rutas_adjuntos:
-                transaction.on_commit(
-                    lambda ruta=ruta: eliminar_archivo_adjunto(ruta, instance.pk)
-                )
-
 
 class PQRHistorialListView(generics.ListAPIView):
     """Devuelve el historial cronológico de una PQR accesible al usuario."""
@@ -245,21 +240,41 @@ class PQRHistorialListView(generics.ListAPIView):
 class PQRTransicionEstadoView(APIView):
     """Permite a administradores y responsables avanzar una PQR de estado."""
 
-    permission_classes = [permissions.IsAuthenticated, PuedeGestionarPQR]
+    permission_classes = [permissions.IsAuthenticated, PuedeRadicarPQR]
 
     def patch(self, request, pk):
         """Valida y persiste una transición permitida del ciclo de vida."""
         serializer = PQRTransicionEstadoSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         estado_destino_codigo = serializer.validated_data["estado_codigo"]
+        motivo = str(request.data.get("motivo", "")).strip()
+        if estado_destino_codigo == "ANULADA" and len(motivo) < 5:
+            raise exceptions.ValidationError(
+                {"detail": "Debes indicar un motivo de anulación (mínimo 5 caracteres)."}
+            )
 
         # Bloquea la fila de PQR mientras verifica y aplica el cambio, evitando
         # que solicitudes simultáneas validen el mismo estado anterior.
         with transaction.atomic():
             pqr = get_object_or_404(
-                PQR.objects.select_for_update(),
+                pqrs_accesibles_para(request.user).select_for_update(),
                 pk=pk,
             )
+
+            es_administrador = request.user.tiene_permiso("usuarios.gestionar")
+            es_responsable_asignado = (
+                request.user.tiene_permiso("pqr.gestionar")
+                and pqr.responsable_id == request.user.pk
+            )
+            if (
+                not (es_administrador or es_responsable_asignado)
+                and estado_destino_codigo != "ANULADA"
+            ):
+                raise exceptions.PermissionDenied(
+                    "Solo el administrador o el responsable asignado pueden "
+                    "cambiar el estado de la PQR."
+                )
+
             destinos_permitidos = TRANSICIONES_ESTADO_PQR.get(
                 pqr.estado.codigo,
                 set(),
@@ -276,6 +291,15 @@ class PQRTransicionEstadoView(APIView):
                         )
                     },
                     status=status.HTTP_400_BAD_REQUEST,
+                )
+            if (
+                estado_destino_codigo == "ANULADA"
+                and not request.user.tiene_permiso("usuarios.gestionar")
+                and pqr.estado.codigo not in ESTADOS_ANULABLES_SIN_ADMIN
+            ):
+                raise exceptions.PermissionDenied(
+                    "Solo el administrador puede anular una PQR que ya está "
+                    "en proceso o atendida."
                 )
 
             estado_destino = Estado.objects.filter(
@@ -299,6 +323,11 @@ class PQRTransicionEstadoView(APIView):
             # cuando el nuevo estado está marcado como final.
             pqr.save(update_fields=["estado", "updated_at"])
             pqr.refresh_from_db()
+
+            if estado_destino_codigo == "ANULADA":
+                registrar_evento_pqr(
+                    pqr, request.user, f"PQR anulada. Motivo: {motivo}"
+                )
 
         return Response(
             PQRDetalleSerializer(pqr).data,
@@ -330,11 +359,9 @@ class PQRRespuestaListCreateView(generics.ListCreateAPIView):
         )
 
     def perform_create(self, serializer):
-        """Guarda la respuesta solo para el administrador o el asignado."""
+        """Guarda la respuesta del administrador, del responsable asignado o del solicitante."""
         usuario = self.request.user
 
-        # Se bloquea únicamente la fila PQR: si la asignación cambia al mismo
-        # tiempo, la autorización se evalúa usando el responsable vigente.
         with transaction.atomic():
             pqr = get_object_or_404(
                 PQR.objects.select_for_update(),
@@ -352,24 +379,46 @@ class PQRRespuestaListCreateView(generics.ListCreateAPIView):
                 usuario.tiene_permiso("pqr.gestionar")
                 and pqr.responsable_id == usuario.pk
             )
-            if not (es_administrador or es_responsable_asignado):
+            es_solicitante = pqr.solicitante_id == usuario.pk
+            es_atencion = es_administrador or es_responsable_asignado
+            if not (es_atencion or es_solicitante):
                 raise exceptions.PermissionDenied(
-                    "Solo el administrador o el responsable asignado "
-                    "pueden registrar una respuesta para esta PQR."
+                    "Solo el administrador, el responsable asignado o quien "
+                    "radicó la PQR pueden registrar una respuesta."
                 )
 
-            # No se cambia el estado. El usuario y la PQR provienen del
-            # contexto autenticado y de la ruta, no del cuerpo del cliente.
-            respuesta = serializer.save(
-                pqr=pqr,
-                responsable=usuario,
-            )
-            registrar_evento_pqr(
-                pqr,
-                usuario,
-                "Respuesta registrada"
-                + (" como solución." if respuesta.es_solucion else "."),
-            )
+            if pqr.estado.codigo in {"CERRADA", "ANULADA"}:
+                raise exceptions.ValidationError(
+                    {"detail": "La solicitud está cerrada o anulada y no admite nuevas respuestas."}
+                )
+
+            # Quien solo radicó la PQR envía mensajes de seguimiento: no marca
+            # solución ni cambia el estado.
+            extra = {} if es_atencion else {"es_solucion": False}
+            respuesta = serializer.save(pqr=pqr, responsable=usuario, **extra)
+
+            if es_atencion:
+                destino_codigo = "CERRADA" if respuesta.es_solucion else "ATENDIDA"
+                estado_destino = Estado.objects.filter(
+                    proceso="PQR",
+                    codigo=destino_codigo,
+                    activo=True,
+                ).first()
+                if estado_destino is not None:
+                    pqr.estado = estado_destino
+                    pqr.save(update_fields=["estado", "updated_at"])
+                    pqr.refresh_from_db()
+
+            if respuesta.es_solucion:
+                comentario_historial = (
+                    f"PQR cerrada por {usuario.nombre_completo}. "
+                    f"Solución final: {respuesta.respuesta}"
+                )
+            elif es_atencion:
+                comentario_historial = "Respuesta registrada."
+            else:
+                comentario_historial = "Respuesta del solicitante registrada."
+            registrar_evento_pqr(pqr, usuario, comentario_historial)
 
 
 class PQRAsignarResponsableView(APIView):
@@ -394,8 +443,16 @@ class PQRAsignarResponsableView(APIView):
                 pk=pk,
             )
             pqr.responsable = responsable
+            if pqr.estado.codigo in {"RECIBIDA", "EN_REVISION"}:
+                estado_proceso = Estado.objects.filter(
+                    proceso="PQR",
+                    codigo="EN_PROCESO",
+                    activo=True,
+                ).first()
+                if estado_proceso is not None:
+                    pqr.estado = estado_proceso
             # El trigger trg_pqr_hist registra el cambio en pqr_historial.
-            pqr.save(update_fields=["responsable", "updated_at"])
+            pqr.save(update_fields=["responsable", "estado", "updated_at"])
             pqr.refresh_from_db()
 
         return Response(
@@ -519,13 +576,8 @@ class PQRAdjuntoRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView)
             )
             instance.delete()
             transaction.on_commit(
-                lambda: self._eliminar_archivo(ruta, adjunto_id)
+                lambda: eliminar_archivo_adjunto(ruta, adjunto_id)
             )
-
-    @staticmethod
-    def _eliminar_archivo(ruta, adjunto_id):
-        """Elimina el archivo físico tras el commit y deja constancia del fallo."""
-        eliminar_archivo_adjunto(ruta, adjunto_id)
 
 
 class PQRAdjuntoDownloadView(APIView):
