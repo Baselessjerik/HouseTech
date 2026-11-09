@@ -29,7 +29,7 @@ class PqrCard extends StatelessWidget {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: primaryBlue.withOpacity(.1),
+                  color: primaryBlue.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
@@ -44,7 +44,7 @@ class PqrCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: c.withOpacity(.1),
+                  color: c.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
@@ -95,7 +95,7 @@ class PqrCard extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: primaryBlue.withOpacity(.06),
+                color: primaryBlue.withValues(alpha: 0.06),
                 borderRadius: BorderRadius.circular(10),
                 border: const Border(
                   left: BorderSide(color: primaryBlue, width: 4),
