@@ -10,7 +10,7 @@ from .views import (
     PQRHistorialListView,
     PQRListCreateView,
     PQRRespuestaListCreateView,
-    PQRRetrieveUpdateDestroyView,
+    PQRRetrieveUpdateView,
     PQRTransicionEstadoView,
     TipoPQRListView,
 )
@@ -29,8 +29,8 @@ urlpatterns = [
     # Lectura, actualización y borrado de una solicitud individual.
     path(
         "pqrs/<int:pk>/",
-        PQRRetrieveUpdateDestroyView.as_view(),
-        name="pqrs-detail-update-delete",
+        PQRRetrieveUpdateView.as_view(),
+        name="pqrs-detail-update",
     ),
     path(
         "pqrs/<int:pqr_id>/historial/",
