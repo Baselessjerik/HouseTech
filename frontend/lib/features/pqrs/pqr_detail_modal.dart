@@ -748,7 +748,7 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
                     SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        '🔒 Solicitud finalizada. Este expediente se encuentra en modo de solo lectura para fines de auditoría.',
+                        'Solicitud finalizada. Este expediente se encuentra en modo de solo lectura para fines de auditoría.',
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
@@ -1385,13 +1385,17 @@ class _PqrDetailSheetState extends State<_PqrDetailSheet> {
   Widget _panelEstado(Pqr p) {
     final estadoActual = PqrEstado.values.indexOf(p.estado);
     final esAnulada = p.estado == PqrEstado.anulado;
-    var indicePrevio = -1;
+        var indicePrevio = -1;
     if (esAnulada) {
       for (final evento in _historial) {
+        final anterior = evento.estadoAnteriorCodigo?.toUpperCase();
+        // Solo cuenta la transición real hacia ANULADA; el evento del motivo
+        // tiene ANULADA como estado anterior y nuevo.
         if (evento.estadoNuevoCodigo?.toUpperCase() == 'ANULADA' &&
-            evento.estadoAnteriorCodigo != null) {
+            anterior != null &&
+            anterior != 'ANULADA') {
           indicePrevio = PqrEstado.values
-              .indexOf(PqrEstado.fromCodigo(evento.estadoAnteriorCodigo!));
+              .indexOf(PqrEstado.fromCodigo(anterior));
         }
       }
     }
