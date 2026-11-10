@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 class UserModel {
   const UserModel({
     required this.id,
@@ -11,6 +14,8 @@ class UserModel {
     required this.activo,
     required this.roles,
     required this.permisos,
+    this.fotoPerfil,
+    this.ultimoLogin,
   });
 
   final int id;
@@ -24,6 +29,8 @@ class UserModel {
   final bool activo;
   final List<String> roles;
   final List<String> permisos;
+  final String? fotoPerfil;
+  final String? ultimoLogin;
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
     return UserModel(
@@ -38,7 +45,21 @@ class UserModel {
       activo: json['activo'] as bool? ?? false,
       roles: List<String>.from(json['roles'] as List? ?? const []),
       permisos: List<String>.from(json['permisos'] as List? ?? const []),
+      fotoPerfil: json['foto_perfil'] as String?,
+      ultimoLogin: json['ultimo_login'] as String?,
     );
+  }
+
+  Uint8List? get fotoBytes {
+    final raw = fotoPerfil;
+    if (raw == null || raw.isEmpty) return null;
+    final commaIdx = raw.indexOf(',');
+    final b64 = commaIdx >= 0 ? raw.substring(commaIdx + 1) : raw;
+    try {
+      return base64Decode(b64.replaceAll(RegExp(r'\s+'), ''));
+    } catch (_) {
+      return null;
+    }
   }
 
   String get nombreCompleto => '$nombres $apellidos'.trim();

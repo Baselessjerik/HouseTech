@@ -2,7 +2,11 @@ from django.urls import path
 from rest_framework.routers import SimpleRouter
 
 from .views import (
+    AuditoriaViewSet,
     CambiarPasswordView,
+    CopropiedadViewSet,
+    EstadoConfigViewSet,
+    InmuebleViewSet,
     LoginView,
     LogoutView,
     MeView,
@@ -22,6 +26,10 @@ router = SimpleRouter()
 router.register("usuarios", UsuarioViewSet, basename="usuario")
 router.register("roles", RolViewSet, basename="rol")
 router.register("permisos", PermisoViewSet, basename="permiso")
+router.register("inmuebles", InmuebleViewSet, basename="inmueble")
+router.register("copropiedades", CopropiedadViewSet, basename="copropiedad")
+router.register("estados-config", EstadoConfigViewSet, basename="estado-config")
+router.register("auditoria", AuditoriaViewSet, basename="auditoria")
 
 urlpatterns = [
     path("auth/login/", LoginView.as_view(), name="login"),

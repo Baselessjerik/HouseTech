@@ -33,6 +33,7 @@ HouseTech/
 │   ├── Dockerfile                # Compilación Flutter y servidor Nginx
 │   ├── nginx.conf                # Configuración del frontend web
 │   ├── lib/features/auth/        # Login, registro y recuperación de contraseña
+│   ├── lib/features/administracion/ # Perfil, usuarios, roles, inmuebles, parametrización, auditoría y reportes (Módulo 1)
 │   ├── lib/features/comunicados/ # Avisos, comunicados, categorías, mantenimientos y bloqueos (Módulo 2)
 │   ├── lib/features/reservas/    # Solicitud de reservas, disponibilidad por fecha y gestión de amenidades (Módulo 3)
 │   ├── lib/features/pqrs/        # Tabla CRUD, radicación, estados y adjuntos de PQR (Módulo PQR)
@@ -41,6 +42,7 @@ HouseTech/
 │   ├── test/                     # Pruebas unitarias y widget
 │   └── pubspec.yaml              # Dependencias Flutter
 ├── docs/
+│   ├── MODULO1.md                # Documentación detallada del Módulo 1
 │   ├── MODULO2.md                # Documentación detallada del Módulo 2
 │   ├── MODULO3.md                # Documentación detallada del Módulo 3
 │   └── MODULO_PQRS.md            # Documentación detallada del Módulo PQR
@@ -214,6 +216,23 @@ docker compose exec -T backend pytest -q
 
 - `seed_demo` crea la copropiedad base y los usuarios demo para los roles `ADMIN` (`admin`), `RESIDENTE` (`residente`) y `RESPONSABLE_PQR` (`responsable`). La clave de desarrollo inicial es `HouseTech2026!`; no debe reutilizarse en producción.
 - `seed_modulo2` crea amenidades de ejemplo (`Piscina`, `Salón social`, `Gimnasio`, `Cancha múltiple`), mantenimientos, bloqueos y comunicados en distintos estados (`PUBLICADO`, `BORRADOR`, `PROGRAMADO`).
+
+## Módulo 1: Usuarios, Perfiles, Roles (RBAC), Inmuebles, Parametrización y Auditoría
+
+El Módulo 1 (documentado a detalle en [docs/MODULO1.md](./docs/MODULO1.md)) gestiona la autenticación JWT, recuperación de contraseña por código, perfil de usuario con carga de foto de perfil, administración de usuarios y roles/permisos dinámicos (RBAC), gestión de inmuebles y vínculos de residentes, parametrización de conjuntos residenciales, bitácora de auditoría y panel gráfico de reportes:
+
+### Endpoints principales del Módulo 1 (`/api/v1/`)
+
+| Recurso | Métodos | Permiso requerido | Descripción |
+|---|---|---|---|
+| `auth/login/`, `refresh/`, `logout/`, `registro/` | `POST` | Público / Autenticado | Autenticación JWT, revocación de sesión y autorregistro de residentes |
+| `auth/me/` y `auth/cambiar-password/` | `GET`, `PATCH`, `POST` | Autenticado | Consulta de perfil, edición de contacto, foto de perfil (base64) y cambio de clave |
+| `auth/recuperar-password/*` | `POST` | Público | Flujo de recuperación de contraseña con código de 6 dígitos |
+| `usuarios/` | `GET`, `POST`, `PATCH`, `POST {id}/activar\|desactivar/`, `PUT {id}/roles/` | `usuarios.gestionar` / `roles.gestionar` | Administración de cuentas de usuario, estado y asignación de roles |
+| `roles/` y `permisos/` | `GET`, `PUT roles/{id}/permisos/` | `roles.gestionar` | Consulta y configuración de la matriz de permisos por rol |
+| `inmuebles/` | `GET`, `POST`, `PATCH`, `POST {id}/activar\|desactivar\|vincular\|desvincular/` | `inmuebles.consultar` / `inmuebles.gestionar` | Gestión de casas/apartamentos y vinculación de residentes o propietarios |
+| `copropiedades/` | `GET`, `POST`, `PATCH` | Autenticado / `configuracion.gestionar` | Parametrización y registro de conjuntos residenciales |
+| `auditoria/` | `GET` | `auditoria.ver` | Bitácora de auditoría con filtros por fecha, actor, acción y entidad |
 
 ## Módulo 2: Comunicados, Mantenimientos y Bloqueos
 

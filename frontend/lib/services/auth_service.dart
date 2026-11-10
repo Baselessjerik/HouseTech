@@ -104,6 +104,48 @@ class AuthService {
     });
   }
 
+  Future<Map<String, dynamic>> actualizarPerfil({
+    String? nombres,
+    String? apellidos,
+    String? email,
+    String? telefono,
+    String? fotoPerfil,
+    bool actualizarFoto = false,
+  }) async {
+    final body = <String, dynamic>{
+      if (nombres != null) 'nombres': nombres,
+      if (apellidos != null) 'apellidos': apellidos,
+      if (email != null) 'email': email,
+      if (telefono != null) 'telefono': telefono,
+      if (actualizarFoto) 'foto_perfil': fotoPerfil,
+    };
+    try {
+      final response = await _authenticatedRequest(
+        () async => http.patch(
+          Uri.parse(ApiConfig.perfilUrl),
+          headers: await _headers(),
+          body: jsonEncode(body),
+        ),
+      );
+      final data = response.body.isEmpty
+          ? <String, dynamic>{}
+          : jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode == 200) {
+        return {
+          'success': true,
+          'user': UserModel.fromJson(data),
+          'data': data,
+        };
+      }
+      return {'success': false, 'message': _message(data)};
+    } catch (_) {
+      return {
+        'success': false,
+        'message': 'Error de conexión con el servidor.',
+      };
+    }
+  }
+
   Future<Map<String, String>> _headers() async {
     final token = await _storage.read(key: 'access_token');
     return {

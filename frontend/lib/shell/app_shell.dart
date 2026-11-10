@@ -2,6 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/app_colors.dart';
+import '../features/administracion/pages/auditoria_page.dart';
+import '../features/administracion/pages/inmuebles_page.dart';
+import '../features/administracion/pages/mi_perfil_page.dart';
+import '../features/administracion/pages/parametrizacion_page.dart';
+import '../features/administracion/pages/reportes_page.dart';
+import '../features/administracion/pages/roles_permisos_page.dart';
+import '../features/administracion/pages/usuarios_admin_page.dart';
 import '../features/auth/presentation/auth_screen.dart';
 import '../features/comunicados/comunicados_menu.dart'; // MODULO-2
 import '../features/pqrs/presentation/pqrs_table_screen.dart';
@@ -185,8 +192,11 @@ class _AppShellState extends ConsumerState<AppShell> {
   List<_MenuItem> _itemsFor(UserModel user) {
     final items = <_MenuItem>[
       _MenuItem('Inicio', Icons.home_rounded, (_) => _Dashboard(user: user)),
-      _MenuItem('Mi perfil', Icons.person_rounded,
-          (user) => _ProfilePanel(user: user)),
+      _MenuItem(
+        'Mi perfil',
+        Icons.person_rounded,
+        (user) => MiPerfilPage(user: user),
+      ),
     ];
     void add(String permission, String label, IconData icon,
         [Widget Function(UserModel)? customBuilder]) {
@@ -204,7 +214,15 @@ class _AppShellState extends ConsumerState<AppShell> {
       }
     }
 
-    add('inmuebles.consultar', 'Inmuebles', Icons.apartment_rounded);
+    add(
+      'inmuebles.consultar',
+      'Inmuebles',
+      Icons.apartment_rounded,
+      (_) => const InmueblesPage(
+        key: ValueKey('inmuebles-residente'),
+        modoAdmin: false,
+      ),
+    );
     add('comunicados.ver', 'Comunicados', Icons.campaign_rounded);
     if (user.tienePermiso('pqr.gestionar')) {
       items.add(
@@ -235,18 +253,49 @@ class _AppShellState extends ConsumerState<AppShell> {
     }
     add('reservas.solicitar', 'Solicitar reserva',
         Icons.calendar_month_rounded);
-    add('usuarios.gestionar', 'Usuarios', Icons.people_alt_rounded);
-    add('inmuebles.gestionar', 'Administrar inmuebles',
-        Icons.apartment_rounded);
-    add('roles.gestionar', 'Roles y permisos',
-        Icons.admin_panel_settings_rounded);
-    add('configuracion.gestionar', 'Parametrización', Icons.settings_rounded);
+    add(
+      'usuarios.gestionar',
+      'Usuarios',
+      Icons.people_alt_rounded,
+      (u) => UsuariosAdminPage(currentUser: u),
+    );
+    add(
+      'inmuebles.gestionar',
+      'Administrar inmuebles',
+      Icons.apartment_rounded,
+      (_) => const InmueblesPage(
+        key: ValueKey('inmuebles-admin'),
+        modoAdmin: true,
+      ),
+    );
+    add(
+      'roles.gestionar',
+      'Roles y permisos',
+      Icons.admin_panel_settings_rounded,
+      (_) => const RolesPermisosPage(),
+    );
+    add(
+      'configuracion.gestionar',
+      'Parametrización',
+      Icons.settings_rounded,
+      (_) => const ParametrizacionPage(),
+    );
     add('amenidades.gestionar', 'Amenidades', Icons.pool_rounded);
     add('bloqueos.gestionar', 'Bloqueos', Icons.lock_clock_rounded);
     add('comunicados.gestionar', 'Administrar comunicados',
         Icons.campaign_rounded);
-    add('reportes.ver', 'Reportes', Icons.bar_chart_rounded);
-    add('auditoria.ver', 'Auditoría', Icons.history_rounded);
+    add(
+      'reportes.ver',
+      'Reportes',
+      Icons.bar_chart_rounded,
+      (_) => const ReportesPage(),
+    );
+    add(
+      'auditoria.ver',
+      'Auditoría',
+      Icons.history_rounded,
+      (_) => const AuditoriaPage(),
+    );
     return items;
   }
 
@@ -310,11 +359,9 @@ class _Avatar extends StatelessWidget {
   final UserModel user;
 
   @override
-  Widget build(BuildContext context) => CircleAvatar(
-        backgroundColor: AppColors.oceanBlue,
-        child: Text(user.iniciales,
-            style: const TextStyle(
-                color: Colors.white, fontWeight: FontWeight.w700)),
+  Widget build(BuildContext context) => UserAvatarWidget(
+        user: user,
+        radius: 20,
       );
 }
 
@@ -462,54 +509,6 @@ class _ModulePreview extends StatelessWidget {
             ),
           )),
         ),
-      );
-}
-
-class _ProfilePanel extends StatelessWidget {
-  const _ProfilePanel({required this.user});
-  final UserModel user;
-
-  @override
-  Widget build(BuildContext context) => Card(
-        elevation: 0,
-        child: Padding(
-          padding: const EdgeInsets.all(28),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(children: [
-                _Avatar(user: user),
-                const SizedBox(width: 16),
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(user.nombreCompleto,
-                      style: Theme.of(context).textTheme.headlineSmall),
-                  Text(user.rolesVisibles,
-                      style: const TextStyle(color: Colors.black54)),
-                ]),
-              ]),
-              const Divider(height: 36),
-              _detail('Usuario', user.username),
-              _detail('Correo electrónico', user.email),
-              _detail(
-                  'Documento', '${user.tipoDocumento} ${user.numeroDocumento}'),
-              _detail('Teléfono', user.telefono ?? 'No registrado'),
-              _detail('Estado', user.activo ? 'Activo' : 'Inactivo'),
-            ],
-          ),
-        ),
-      );
-
-  Widget _detail(String label, String value) => Padding(
-        padding: const EdgeInsets.only(bottom: 14),
-        child: Row(children: [
-          SizedBox(
-              width: 160,
-              child:
-                  Text(label, style: const TextStyle(color: Colors.black54))),
-          Expanded(
-              child: Text(value,
-                  style: const TextStyle(fontWeight: FontWeight.w600))),
-        ]),
       );
 }
 

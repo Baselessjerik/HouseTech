@@ -30,4 +30,26 @@ void main() {
     expect(UserModel.nombreRol('RESPONSABLE_PQR'), 'Responsable de PQR');
     expect(UserModel.nombreRol('OTRO'), 'OTRO');
   });
+
+  test('decodifica foto_perfil en formato data URI base64', () {
+    const png1x1 =
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    final user = UserModel.fromJson({
+      'id': 1,
+      'tipo_documento': 'CC',
+      'numero_documento': '100',
+      'nombres': 'Carlos',
+      'apellidos': 'Ruiz',
+      'username': 'carlos',
+      'email': 'carlos@example.com',
+      'activo': true,
+      'foto_perfil': png1x1,
+      'roles': ['RESIDENTE'],
+      'permisos': [],
+    });
+
+    expect(user.fotoPerfil, png1x1);
+    expect(user.fotoBytes, isNotNull);
+    expect(user.fotoBytes!.isNotEmpty, isTrue);
+  });
 }

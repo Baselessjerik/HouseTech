@@ -1,9 +1,12 @@
 """Lógica de negocio del módulo de usuarios (fuera de las vistas)."""
+import base64
 import hashlib
 import hmac
 import logging
+import re
 import secrets
 from datetime import timedelta
+from pathlib import Path
 
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
@@ -16,6 +19,52 @@ from .models import RecuperacionPassword, Rol, RolPermiso, UsuarioRol
 logger = logging.getLogger(__name__)
 
 VIGENCIA_CODIGO = timedelta(minutes=15)
+_DATA_URI_RE = re.compile(r"^data:image/(png|jpeg|jpg|webp|gif);base64,([A-Za-z0-9+/=\s]+)$", re.IGNORECASE)
+_MAX_AVATAR_BYTES = 3 * 1024 * 1024
+
+
+def _avatar_path(usuario_id: int) -> Path:
+    carpeta = Path(settings.MEDIA_ROOT) / "avatars"
+    carpeta.mkdir(parents=True, exist_ok=True)
+    return carpeta / f"user_{usuario_id}.txt"
+
+
+def obtener_foto_perfil(usuario_id: int) -> str | None:
+    ruta = _avatar_path(usuario_id)
+    if not ruta.exists():
+        return None
+    try:
+        contenido = ruta.read_text(encoding="utf-8").strip()
+        return contenido or None
+    except OSError:
+        return None
+
+
+def guardar_foto_perfil(usuario_id: int, foto_data: str | None) -> str | None:
+    ruta = _avatar_path(usuario_id)
+    if not foto_data or not foto_data.strip():
+        if ruta.exists():
+            ruta.unlink(missing_ok=True)
+        return None
+    limpio = foto_data.strip()
+    coincidencia = _DATA_URI_RE.match(limpio)
+    if not coincidencia:
+        raise ValidationError(
+            {"foto_perfil": "Formato de imagen inválido. Usa PNG, JPG, WEBP o GIF en formato data URI base64."}
+        )
+    mime_ext = coincidencia.group(1).lower()
+    if mime_ext == "jpg":
+        mime_ext = "jpeg"
+    b64_str = re.sub(r"\s+", "", coincidencia.group(2))
+    try:
+        raw = base64.b64decode(b64_str, validate=True)
+    except Exception:
+        raise ValidationError({"foto_perfil": "La imagen codificada en base64 no es válida."})
+    if len(raw) > _MAX_AVATAR_BYTES:
+        raise ValidationError({"foto_perfil": "La imagen no puede superar los 3 MB."})
+    normalizado = f"data:image/{mime_ext};base64,{base64.b64encode(raw).decode('ascii')}"
+    ruta.write_text(normalizado, encoding="utf-8")
+    return normalizado
 
 
 # --- recuperación de contraseña (RF4) ----------------------------------------

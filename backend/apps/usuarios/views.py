@@ -13,14 +13,20 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from apps.core.db import set_audit_user
-from apps.core.permissions import requiere_permiso
+from apps.core.models import Auditoria, Copropiedad, Estado
+from apps.core.permissions import requiere_algun_permiso, requiere_permiso
+from apps.inmuebles.models import Inmueble, InmuebleUsuario
 
 from .filters import UsuarioFilter
 from .models import Permiso, Rol, TokenRevocado, Usuario
 from .serializers import (
     AsignarPermisosSerializer,
     AsignarRolesSerializer,
+    AuditoriaSerializer,
     CambiarPasswordSerializer,
+    CopropiedadSerializer,
+    EstadoConfigSerializer,
+    InmuebleSerializer,
     LoginSerializer,
     LogoutSerializer,
     PerfilUpdateSerializer,
@@ -31,6 +37,7 @@ from .serializers import (
     RolSerializer,
     SolicitarRecuperacionSerializer,
     ValidarCodigoRecuperacionSerializer,
+    VincularUsuarioInmuebleSerializer,
     UsuarioAdminCreateSerializer,
     UsuarioListaSerializer,
     UsuarioPerfilSerializer,
@@ -40,6 +47,10 @@ from .throttles import RestablecerPasswordThrottle, SolicitarRecuperacionThrottl
 
 PuedeGestionarUsuarios = requiere_permiso("usuarios.gestionar")
 PuedeGestionarRoles = requiere_permiso("roles.gestionar")
+PuedeVerInmuebles = requiere_algun_permiso("inmuebles.consultar", "inmuebles.gestionar")
+PuedeGestionarInmuebles = requiere_permiso("inmuebles.gestionar")
+PuedeGestionarConfiguracion = requiere_permiso("configuracion.gestionar")
+PuedeVerAuditoria = requiere_permiso("auditoria.ver")
 
 
 class LoginView(TokenObtainPairView):
@@ -263,3 +274,130 @@ class PermisoViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = PermisoSerializer
     permission_classes = [IsAuthenticated, PuedeGestionarRoles]
     pagination_class = None
+
+
+# --- Inmuebles, Copropiedad (Parametrización), Estados y Auditoría ---------------
+class InmuebleViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
+    http_method_names = ["get", "post", "patch", "head", "options"]
+    serializer_class = InmuebleSerializer
+    search_fields = ["codigo_interno", "numero", "torre_bloque", "tipo"]
+    ordering_fields = ["codigo_interno", "torre_bloque", "numero", "id"]
+
+    def get_permissions(self):
+        if self.action in ("list", "retrieve"):
+            return [IsAuthenticated(), PuedeVerInmuebles()]
+        return [IsAuthenticated(), PuedeGestionarInmuebles()]
+
+    def get_queryset(self):
+        qs = Inmueble.objects.select_related("copropiedad").order_by("torre_bloque", "numero", "id")
+        user = self.request.user
+        solo_mios = self.request.query_params.get("mios") == "true"
+        if solo_mios or not user.tiene_permiso("inmuebles.gestionar"):
+            qs = qs.filter(vinculos__usuario=user, vinculos__fecha_fin__isnull=True).distinct()
+        activo = self.request.query_params.get("activo")
+        if activo in ("true", "false"):
+            qs = qs.filter(activo=(activo == "true"))
+        tipo = self.request.query_params.get("tipo")
+        if tipo:
+            qs = qs.filter(tipo=tipo.upper())
+        copropiedad = self.request.query_params.get("copropiedad")
+        if copropiedad and copropiedad.isdigit():
+            qs = qs.filter(copropiedad_id=int(copropiedad))
+        return qs
+
+    @action(detail=True, methods=["post"])
+    def activar(self, request, pk=None):
+        inmueble = self.get_object()
+        inmueble.activo = True
+        inmueble.save(update_fields=["activo"])
+        return Response(InmuebleSerializer(inmueble).data)
+
+    @action(detail=True, methods=["post"])
+    def desactivar(self, request, pk=None):
+        inmueble = self.get_object()
+        inmueble.activo = False
+        inmueble.save(update_fields=["activo"])
+        return Response(InmuebleSerializer(inmueble).data)
+
+    @action(detail=True, methods=["post"])
+    def vincular(self, request, pk=None):
+        inmueble = self.get_object()
+        serializer = VincularUsuarioInmuebleSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        usuario = serializer.validated_data["usuario_id"]
+        tipo_relacion = serializer.validated_data["tipo_relacion"]
+        existente = InmuebleUsuario.objects.filter(
+            inmueble=inmueble,
+            usuario=usuario,
+            tipo_relacion=tipo_relacion,
+            fecha_fin__isnull=True,
+        ).first()
+        if existente is None:
+            InmuebleUsuario.objects.create(
+                inmueble=inmueble,
+                usuario=usuario,
+                tipo_relacion=tipo_relacion,
+            )
+        return Response(InmuebleSerializer(inmueble).data)
+
+    @action(detail=True, methods=["post"])
+    def desvincular(self, request, pk=None):
+        inmueble = self.get_object()
+        vinculo_id = request.data.get("vinculo_id")
+        if not vinculo_id:
+            raise ValidationError({"vinculo_id": "Indica el vínculo que deseas finalizar."})
+        vinculo = InmuebleUsuario.objects.filter(
+            pk=vinculo_id, inmueble=inmueble, fecha_fin__isnull=True
+        ).first()
+        if vinculo is None:
+            raise ValidationError({"vinculo_id": "Vínculo no encontrado o ya finalizado."})
+        vinculo.fecha_fin = timezone.localdate()
+        vinculo.save(update_fields=["fecha_fin"])
+        return Response(InmuebleSerializer(inmueble).data)
+
+
+class CopropiedadViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
+    http_method_names = ["get", "post", "patch", "head", "options"]
+    queryset = Copropiedad.objects.order_by("id")
+    serializer_class = CopropiedadSerializer
+    pagination_class = None
+
+    def get_permissions(self):
+        if self.action in ("list", "retrieve"):
+            return [IsAuthenticated()]
+        return [IsAuthenticated(), PuedeGestionarConfiguracion()]
+
+
+class EstadoConfigViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Estado.objects.order_by("proceso", "orden", "id")
+    serializer_class = EstadoConfigSerializer
+    permission_classes = [IsAuthenticated, PuedeGestionarConfiguracion]
+    pagination_class = None
+
+
+class AuditoriaViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = AuditoriaSerializer
+    permission_classes = [IsAuthenticated, PuedeVerAuditoria]
+    search_fields = ["tabla", "operacion", "registro_id", "usuario__username", "usuario__nombres", "usuario__apellidos"]
+
+    def get_queryset(self):
+        qs = Auditoria.objects.select_related("usuario").order_by("-fecha", "-id")
+        tabla = self.request.query_params.get("tabla")
+        if tabla:
+            qs = qs.filter(tabla__iexact=tabla)
+        operacion = self.request.query_params.get("operacion")
+        if operacion:
+            qs = qs.filter(operacion__iexact=operacion)
+        return qs

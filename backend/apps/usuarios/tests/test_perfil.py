@@ -112,3 +112,18 @@ def test_cambiar_password_ok(auth_client):
     auth_client.credentials()
     assert iniciar_sesion(auth_client, "ana", CLAVE_ANA).status_code == 401
     assert iniciar_sesion(auth_client, "ana", NUEVA).status_code == 200
+
+
+def test_actualizar_y_eliminar_foto_perfil(auth_client):
+    png_1x1 = (
+        "data:image/png;base64,"
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    )
+    r = auth_client.patch(ME, {"foto_perfil": png_1x1}, format="json")
+    assert r.status_code == 200
+    assert r.data["foto_perfil"] == png_1x1
+
+    r_clear = auth_client.patch(ME, {"foto_perfil": ""}, format="json")
+    assert r_clear.status_code == 200
+    assert r_clear.data["foto_perfil"] is None
+
