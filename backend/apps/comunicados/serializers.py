@@ -12,6 +12,7 @@ from .models import (
     Bloqueo,
     CategoriaComunicado,
     Comunicado,
+    ComunicadoAdjunto,
     ComunicadoHistorial,
     Mantenimiento,
     Notificacion,
@@ -168,6 +169,19 @@ class CategoriaSerializer(serializers.ModelSerializer):
         return valor
 
 
+# ------------------------------------------------------------------------------ adjuntos
+class AdjuntoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ComunicadoAdjunto
+        fields = ["id", "nombre_original", "tipo_contenido", "tamano_bytes", "created_at"]
+        read_only_fields = fields
+
+
+def _adjuntos_de(obj):
+    qs = ComunicadoAdjunto.objects.filter(comunicado_id=obj.pk).defer("contenido")
+    return AdjuntoSerializer(qs, many=True).data
+
+
 # ----------------------------------------------------------------------------- comunicados
 class ComunicadoSerializer(serializers.ModelSerializer):
     categoria_nombre = serializers.CharField(source="categoria.nombre", read_only=True, default=None)
@@ -175,13 +189,14 @@ class ComunicadoSerializer(serializers.ModelSerializer):
     autor_nombre = serializers.SerializerMethodField()
     rol_destino_codigo = serializers.CharField(source="rol_destino.codigo", read_only=True, default=None)
     destinatarios = serializers.SerializerMethodField()
+    adjuntos = serializers.SerializerMethodField()
 
     class Meta:
         model = Comunicado
         fields = [
             "id", "categoria", "categoria_nombre", "categoria_color", "titulo", "contenido", "autor",
             "autor_nombre", "estado", "audiencia", "rol_destino", "rol_destino_codigo", "destinatarios",
-            "fecha_programada", "fecha_publicacion", "fecha_expiracion", "created_at", "updated_at",
+            "adjuntos", "fecha_programada", "fecha_publicacion", "fecha_expiracion", "created_at", "updated_at",
         ]
         read_only_fields = fields
 
@@ -193,6 +208,10 @@ class ComunicadoSerializer(serializers.ModelSerializer):
     def get_destinatarios(self, obj):
         return services.ids_destinatarios(obj) if obj.audiencia == Comunicado.Audiencia.USUARIOS else []
 
+    @extend_schema_field(AdjuntoSerializer(many=True))
+    def get_adjuntos(self, obj):
+        return _adjuntos_de(obj)
+
 
 class AvisoSerializer(serializers.ModelSerializer):
     """Vista del residente (RF14): solo lo necesario para leer el aviso."""
@@ -200,14 +219,19 @@ class AvisoSerializer(serializers.ModelSerializer):
     categoria_nombre = serializers.CharField(source="categoria.nombre", read_only=True, default=None)
     categoria_color = serializers.CharField(source="categoria.color", read_only=True, default=None)
     autor_nombre = serializers.SerializerMethodField()
+    adjuntos = serializers.SerializerMethodField()
 
     class Meta:
         model = Comunicado
         fields = [
             "id", "categoria", "categoria_nombre", "categoria_color", "titulo", "contenido", "autor_nombre",
-            "fecha_publicacion", "fecha_expiracion",
+            "adjuntos", "fecha_publicacion", "fecha_expiracion",
         ]
         read_only_fields = fields
+
+    @extend_schema_field(AdjuntoSerializer(many=True))
+    def get_adjuntos(self, obj):
+        return _adjuntos_de(obj)
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_autor_nombre(self, obj):
@@ -257,6 +281,15 @@ class ComunicadoEscrituraSerializer(serializers.Serializer):
                 {"fecha_expiracion": "La expiración debe ser posterior a la fecha programada."}
             )
         return attrs
+
+
+class SubirAdjuntoSerializer(serializers.Serializer):
+    archivo = serializers.FileField()
+
+
+class EnlaceAdjuntoSerializer(serializers.Serializer):
+    url = serializers.CharField()
+    expira_en_segundos = serializers.IntegerField()
 
 
 class ProgramarSerializer(serializers.Serializer):

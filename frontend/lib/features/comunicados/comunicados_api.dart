@@ -56,6 +56,30 @@ class ApiClient {
 
   Future<dynamic> delete(String url) => _enviar('DELETE', url);
 
+  /// Sube un archivo (multipart/form-data) con el mismo manejo de sesión que las demás llamadas.
+  Future<dynamic> postArchivo(String url,
+      {required String campo, required String nombre, required List<int> bytes}) async {
+    try {
+      var respuesta = await _subir(url, campo, nombre, bytes);
+      if (respuesta.statusCode == 401 && await _renovarToken()) {
+        respuesta = await _subir(url, campo, nombre, bytes);
+      }
+      return _procesar(respuesta);
+    } on ApiException {
+      rethrow;
+    } catch (_) {
+      throw ApiException('Error de conexión con el servidor.');
+    }
+  }
+
+  Future<http.Response> _subir(String url, String campo, String nombre, List<int> bytes) async {
+    final peticion = http.MultipartRequest('POST', Uri.parse(url));
+    final token = await _storage.read(key: 'access_token');
+    if (token != null) peticion.headers['Authorization'] = 'Bearer $token';
+    peticion.files.add(http.MultipartFile.fromBytes(campo, bytes, filename: nombre));
+    return http.Response.fromStream(await peticion.send());
+  }
+
   Future<dynamic> _enviar(String metodo, String url,
       {Map<String, dynamic>? body, Map<String, String>? query}) async {
     try {
@@ -148,6 +172,7 @@ class ApiClient {
     'color': 'Color',
     'crear_bloqueo': 'Bloqueo',
     'estado': 'Estado',
+    'archivo': 'Archivo',
   };
 
   String _mensaje(Map<String, dynamic> datos, int status) {

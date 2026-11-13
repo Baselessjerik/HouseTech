@@ -4,9 +4,11 @@ Las vistas solo validan entrada y llaman a estas funciones. Todas escriben dentr
 transacción de la petición (ATOMIC_REQUESTS) y, fuera de una petición (comandos), dentro
 de su propio `transaction.atomic()`.
 """
+import mimetypes
 import os
 from datetime import timedelta
 
+from django.core import signing
 from django.core.mail import send_mail
 from django.db import connection, transaction
 from django.db.models import Exists, OuterRef, Q
@@ -20,6 +22,7 @@ from .models import (
     AmenidadRef,
     Bloqueo,
     Comunicado,
+    ComunicadoAdjunto,
     ComunicadoDestinatario,
     Mantenimiento,
     Notificacion,
@@ -648,3 +651,75 @@ def comunicados_visibles(usuario, ahora=None):
         | Q(audiencia=ROL, rol_destino_id__in=roles)
         | Q(audiencia=USUARIOS, _es_destinatario=True)
     )
+
+
+# ------------------------------------------------------------------------------- adjuntos
+MAX_ADJUNTOS = 5
+MAX_BYTES_ADJUNTO = 10 * 1024 * 1024  # 10 MB por archivo
+EXTENSIONES_PERMITIDAS = {
+    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "csv", "png", "jpg", "jpeg", "gif", "webp", "zip",
+}
+SALT_ENLACE = "comunicados.adjunto"
+SEGUNDOS_ENLACE = 300  # el enlace de descarga vale 5 minutos
+
+
+def _extension(nombre):
+    return nombre.rsplit(".", 1)[-1].lower() if "." in nombre else ""
+
+
+def _nombre_seguro(nombre):
+    """Solo el nombre del archivo (sin rutas) y con largo acotado."""
+    limpio = os.path.basename((nombre or "").replace("\\", "/")).strip()
+    if len(limpio) > 200:
+        base, _, ext = limpio.rpartition(".")
+        limpio = base[: 195 - len(ext)] + "." + ext if ext and base else limpio[:200]
+    return limpio
+
+
+@transaction.atomic
+def agregar_adjunto(comunicado, archivo, usuario):
+    if comunicado.estado == ARCHIVADO:
+        raise ValidationError({"detail": "No se pueden adjuntar archivos a un comunicado archivado."})
+    nombre = _nombre_seguro(getattr(archivo, "name", ""))
+    if not nombre:
+        raise ValidationError({"archivo": "El archivo no tiene nombre."})
+    if _extension(nombre) not in EXTENSIONES_PERMITIDAS:
+        permitidas = ", ".join(sorted(EXTENSIONES_PERMITIDAS))
+        raise ValidationError({"archivo": f"Tipo de archivo no permitido. Usa: {permitidas}."})
+    if archivo.size <= 0:
+        raise ValidationError({"archivo": "El archivo está vacío."})
+    if archivo.size > MAX_BYTES_ADJUNTO:
+        raise ValidationError({"archivo": f"«{nombre}» supera el máximo de {MAX_BYTES_ADJUNTO // (1024 * 1024)} MB."})
+    existentes = ComunicadoAdjunto.objects.filter(comunicado_id=comunicado.pk).count()
+    if existentes >= MAX_ADJUNTOS:
+        raise ValidationError({"archivo": f"Un comunicado admite máximo {MAX_ADJUNTOS} archivos."})
+    tipo = mimetypes.guess_type(nombre)[0] or "application/octet-stream"
+    return ComunicadoAdjunto.objects.create(
+        comunicado_id=comunicado.pk,
+        nombre_original=nombre,
+        tipo_contenido=tipo,
+        tamano_bytes=archivo.size,
+        contenido=archivo.read(),
+        subido_por=usuario,
+    )
+
+
+@transaction.atomic
+def eliminar_adjunto(comunicado, adjunto_id):
+    if comunicado.estado == ARCHIVADO:
+        raise ValidationError({"detail": "Un comunicado archivado no se puede modificar."})
+    borrados, _ = ComunicadoAdjunto.objects.filter(pk=adjunto_id, comunicado_id=comunicado.pk).delete()
+    return borrados > 0
+
+
+def crear_token_adjunto(adjunto):
+    return signing.dumps({"adjunto": adjunto.pk}, salt=SALT_ENLACE)
+
+
+def adjunto_desde_token(token):
+    """Devuelve el adjunto del enlace firmado o None si es inválido o ya venció."""
+    try:
+        datos = signing.loads(token, salt=SALT_ENLACE, max_age=SEGUNDOS_ENLACE)
+    except signing.BadSignature:  # incluye SignatureExpired
+        return None
+    return ComunicadoAdjunto.objects.filter(pk=datos.get("adjunto")).first()

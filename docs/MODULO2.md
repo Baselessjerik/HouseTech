@@ -1,7 +1,8 @@
 # Módulo 2 · Comunicados, mantenimientos y bloqueos (Iteración 3: RF1–RF16)
 
 Módulo autocontenido: usa el esquema de `commands.sql` (idéntico a `schema.sql`) y las convenciones del Módulo 1.
-No crea tablas ni permisos nuevos.
+No crea permisos nuevos. **Única tabla nueva:** `comunicado_adjuntos` (archivos adjuntos), creada por la migración
+`comunicados/0002_adjuntos` (ver sección 8).
 
 > **Estado de verificación:** el código se escribió leyendo el repositorio del Módulo 1 y el SQL, pero **no se ejecutó**
 > (el entorno donde se generó no tiene Django, PostgreSQL ni Flutter). Corre los comandos de la sección 3 y
@@ -110,3 +111,32 @@ Reglas clave:
 - La paginación del cliente usa "Cargar más" (20 por página, como el backend).
 - El formulario de destinatarios específicos lista como máximo 25 usuarios por búsqueda.
 - La zona horaria se guarda en UTC y se muestra en la hora local del dispositivo.
+
+## 8. Archivos adjuntos en comunicados
+
+El administrador puede adjuntar archivos al crear o editar un comunicado; los residentes los descargan desde el aviso.
+
+- **Límites:** máximo 5 archivos por comunicado y 10 MB cada uno. Tipos permitidos: pdf, doc, docx, xls, xlsx, ppt,
+  pptx, txt, csv, png, jpg, jpeg, gif, webp, zip (se rechazan .exe, .html, .js, .svg y archivos sin extensión).
+  Los límites están en `services.py` (`MAX_ADJUNTOS`, `MAX_BYTES_ADJUNTO`, `EXTENSIONES_PERMITIDAS`).
+- **Almacenamiento:** el contenido se guarda en la propia BD (columna `BYTEA` de `comunicado_adjuntos`). Así no hace
+  falta tocar `settings` (MEDIA_ROOT) ni configurar carpetas o volúmenes. Si en el futuro hay muchos archivos grandes,
+  conviene migrar a almacenamiento de archivos u objeto.
+- **Migración:** `python manage.py migrate` crea la tabla. Es reversible (`migrate comunicados 0001` la borra).
+  Si la BD ya existía, solo hay que volver a correr `migrate`; no se pierden datos.
+- **Dependencias nuevas del frontend:** `file_picker` (elegir archivos) y `url_launcher` (abrir la descarga).
+  Se añaden a `frontend/pubspec.yaml` (archivo compartido: 2 líneas marcadas `MODULO-2`).
+
+| Endpoint | Método | Permiso | Descripción |
+|---|---|---|---|
+| `comunicados/{id}/adjuntos/` | POST (multipart, campo `archivo`) | `comunicados.gestionar` | Sube un archivo |
+| `comunicados/{id}/adjuntos/{adjunto_id}/` | DELETE | `comunicados.gestionar` | Quita un archivo |
+| `comunicados/{id}/adjuntos/{adjunto_id}/enlace/` | POST | `comunicados.gestionar` | Enlace temporal de descarga (admin) |
+| `avisos/{id}/adjuntos/{adjunto_id}/enlace/` | POST | `comunicados.ver` | Enlace temporal (solo avisos que el usuario puede ver) |
+| `adjuntos/descargar/{token}/` | GET | enlace firmado | Descarga el archivo (vale 5 min) |
+
+Seguridad: el binario nunca viaja en el JSON; el nombre se limpia de rutas; la descarga fuerza
+`Content-Disposition: attachment` y `nosniff` (el navegador no ejecuta ni muestra el archivo); un residente solo obtiene
+enlace de avisos publicados, vigentes y dirigidos a él; no se adjunta ni se quita en comunicados archivados.
+
+Puntos de integración extra: `frontend/pubspec.yaml` (2 dependencias) y la migración `0002_adjuntos`.

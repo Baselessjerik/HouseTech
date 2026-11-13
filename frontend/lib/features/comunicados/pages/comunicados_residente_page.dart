@@ -6,6 +6,7 @@ import '../../../widgets/app_card.dart';
 import '../../../widgets/empty_state.dart';
 import '../models/modelos.dart';
 import '../providers/comunicados_providers.dart';
+import '../widgets/adjuntos.dart';
 import '../widgets/ui.dart';
 
 /// Pantalla del residente: avisos (RF14), notificaciones (RF8/RF16) y disponibilidad (RF6).
@@ -147,6 +148,11 @@ class _AvisoCard extends StatelessWidget {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             if (aviso.categoriaNombre != null) EstadoChip(aviso.categoriaNombre!, color: aviso.colorCategoria),
+            if (aviso.adjuntos.isNotEmpty) ...[
+              const SizedBox(width: 10),
+              const Icon(Icons.attach_file_rounded, size: 16, color: Colors.black54),
+              Text('${aviso.adjuntos.length}', style: const TextStyle(color: Colors.black54, fontSize: 12.5)),
+            ],
             const Spacer(),
             if (aviso.fechaPublicacion != null)
               Text(fechaCorta(aviso.fechaPublicacion!), style: const TextStyle(color: Colors.black54, fontSize: 12)),
@@ -184,6 +190,7 @@ class AvisoDetalleDialog extends StatelessWidget {
               ],
               const SizedBox(height: 14),
               SelectableText(aviso.contenido),
+              AdjuntosLista(comunicadoId: aviso.id, adjuntos: aviso.adjuntos, gestion: false),
               if (aviso.fechaExpiracion != null) ...[
                 const SizedBox(height: 14),
                 Text('Vigente hasta el ${fechaHora(aviso.fechaExpiracion!)}',

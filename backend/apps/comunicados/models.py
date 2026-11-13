@@ -157,6 +157,28 @@ class ComunicadoDestinatario(models.Model):
         db_table = "comunicado_destinatarios"
 
 
+class ComunicadoAdjunto(models.Model):
+    """Archivo adjunto de un comunicado (tabla creada por la migración 0002; contenido en la BD)."""
+
+    comunicado = models.ForeignKey(Comunicado, on_delete=models.DO_NOTHING, related_name="adjuntos")
+    nombre_original = models.CharField(max_length=255)
+    tipo_contenido = models.CharField(max_length=120, default="application/octet-stream")
+    tamano_bytes = models.IntegerField()
+    contenido = models.BinaryField()
+    subido_por = models.ForeignKey(
+        USUARIO, null=True, blank=True, on_delete=models.DO_NOTHING, related_name="+", db_column="subido_por"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = False
+        db_table = "comunicado_adjuntos"
+        ordering = ["id"]
+
+    def __str__(self):
+        return self.nombre_original
+
+
 class ComunicadoHistorial(models.Model):
     """Solo lectura: la llena el trigger fn_comunicados_historial."""
 

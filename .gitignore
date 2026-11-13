@@ -1,4 +1,4 @@
-# Python
+﻿# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -15,3 +15,12 @@ frontend/.dart_tool/
 frontend/build/
 frontend/.flutter-plugins
 frontend/.flutter-plugins-dependencies
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# Local Android configuration
+**/local.properties

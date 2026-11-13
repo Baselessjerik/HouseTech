@@ -8,6 +8,7 @@ import 'package:housetech_frontend/features/comunicados/pages/bloqueos_admin_pag
 import 'package:housetech_frontend/features/comunicados/pages/comunicados_residente_page.dart';
 import 'package:housetech_frontend/features/comunicados/providers/comunicados_providers.dart';
 import 'package:housetech_frontend/features/comunicados/services/comunicados_service.dart';
+import 'package:housetech_frontend/features/comunicados/widgets/adjuntos.dart';
 
 /// Servicio falso: no usa red.
 class FakeServicio extends ComunicadosService {
@@ -20,6 +21,7 @@ class FakeServicio extends ComunicadosService {
             contenido: 'El jueves de 8 a. m. a 2 p. m.',
             categoriaNombre: 'Mantenimiento',
             categoriaColor: '#D97706',
+            adjuntos: [AdjuntoComunicado(id: 5, nombre: 'reglamento.pdf', tipo: 'application/pdf', tamano: 2048)],
           ),
         ],
         total: 1,
@@ -83,6 +85,29 @@ void main() {
       expect(c.destinatarios, [4, 5]);
       expect(c.fechaProgramada!.toUtc().hour, 20);
       expect(c.colorCategoria, const Color(0xFF16A34A));
+    });
+
+    test('Comunicado.fromJson lee los archivos adjuntos', () {
+      final c = Comunicado.fromJson({
+        'id': 1,
+        'titulo': 'Con archivos',
+        'contenido': 'x',
+        'adjuntos': [
+          {'id': 9, 'nombre_original': 'Acta.PDF', 'tipo_contenido': 'application/pdf', 'tamano_bytes': 1500},
+        ],
+      });
+      expect(c.adjuntos.single.nombre, 'Acta.PDF');
+      expect(c.adjuntos.single.extension, 'pdf');
+      expect(c.adjuntos.single.tamano, 1500);
+      expect(Comunicado.fromJson({'id': 2, 'titulo': 't', 'contenido': 'c'}).adjuntos, isEmpty);
+    });
+
+    test('formato de tamaños e iconos de archivos', () {
+      expect(formatoTamano(500), '500 B');
+      expect(formatoTamano(2048), '2 KB');
+      expect(formatoTamano(3 * 1024 * 1024), '3.0 MB');
+      expect(iconoArchivo('pdf'), Icons.picture_as_pdf_rounded);
+      expect(iconoArchivo('xyz'), Icons.insert_drive_file_rounded);
     });
 
     test('Bloqueo.fromJson y permisos de edición según el estado', () {
@@ -158,6 +183,15 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Cerrar'), findsOneWidget);
       expect(find.textContaining('8 a. m.'), findsWidgets);
+    });
+
+    testWidgets('el detalle del aviso muestra los archivos adjuntos', (tester) async {
+      await pumpPagina(tester, const ComunicadosResidentePage());
+      await tester.tap(find.text('Corte de agua programado'));
+      await tester.pumpAndSettle();
+      expect(find.text('Archivos adjuntos'), findsOneWidget);
+      expect(find.text('reglamento.pdf'), findsOneWidget);
+      expect(find.text('2 KB'), findsOneWidget);
     });
 
     testWidgets('muestra las notificaciones', (tester) async {
