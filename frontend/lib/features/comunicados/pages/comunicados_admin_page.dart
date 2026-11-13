@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -10,7 +11,59 @@ import '../comunicados_api.dart';
 import '../models/modelos.dart';
 import '../providers/comunicados_providers.dart';
 import '../services/comunicados_service.dart';
+import '../widgets/adjuntos.dart';
 import '../widgets/ui.dart';
+
+/// Lo que devuelve el formulario de comunicado: los datos del aviso y los cambios en sus archivos.
+class ResultadoComunicadoForm {
+  const ResultadoComunicadoForm({required this.datos, this.nuevos = const [], this.eliminar = const []});
+
+  final Map<String, dynamic> datos;
+  final List<ArchivoLocal> nuevos;
+  final List<int> eliminar;
+}
+
+/// Guarda el comunicado y después sube/quita sus archivos. Avisa si algún archivo falló.
+/// Devuelve true si el comunicado quedó guardado.
+Future<bool> guardarComunicadoConAdjuntos(
+  BuildContext context,
+  ComunicadosService servicio,
+  ResultadoComunicadoForm res, {
+  int? id,
+  required String exito,
+}) async {
+  int? comunicadoId;
+  final guardado = await ejecutarSimple(context, () async {
+    comunicadoId = await servicio.guardarComunicado(id: id, datos: res.datos);
+  });
+  final destino = comunicadoId;
+  if (!guardado || destino == null) return false;
+
+  final fallos = <String>[];
+  for (final adjuntoId in res.eliminar) {
+    try {
+      await servicio.quitarAdjunto(destino, adjuntoId);
+    } on ApiException catch (e) {
+      fallos.add(e.mensaje);
+    }
+  }
+  for (final archivo in res.nuevos) {
+    try {
+      await servicio.subirAdjunto(destino, archivo);
+    } on ApiException catch (e) {
+      fallos.add('${archivo.nombre}: ${e.mensaje}');
+    }
+  }
+  if (context.mounted) {
+    if (fallos.isEmpty) {
+      mostrarMensaje(context, exito);
+    } else {
+      mostrarMensaje(context, 'El comunicado se guardó, pero hubo problemas con los archivos: ${fallos.join(' · ')}',
+          error: true);
+    }
+  }
+  return true;
+}
 
 /// Administración de comunicados (RF9-RF13, RF15) y categorías (RF12).
 class ComunicadosAdminPage extends ConsumerStatefulWidget {
@@ -35,11 +88,11 @@ class _ComunicadosAdminPageState extends ConsumerState<ComunicadosAdminPage> {
   Future<void> _nuevoComunicado() async {
     final categorias = await _categorias();
     if (categorias == null || !mounted) return;
-    final datos = await showDialog<Map<String, dynamic>>(
+    final res = await showDialog<ResultadoComunicadoForm>(
         context: context, builder: (_) => ComunicadoFormDialog(categorias: categorias));
-    if (datos == null || !mounted) return;
-    final ok = await ejecutarSimple(
-        context, () => ref.read(comunicadosServiceProvider).guardarComunicado(datos: datos),
+    if (res == null || !mounted) return;
+    final ok = await guardarComunicadoConAdjuntos(
+        context, ref.read(comunicadosServiceProvider), res,
         exito: 'Comunicado guardado como borrador');
     if (ok) ref.read(comunicadosAdminProvider.notifier).recargar();
   }
@@ -118,12 +171,12 @@ class _ComunicadosVista extends ConsumerWidget {
       return;
     }
     if (!context.mounted) return;
-    final datos = await showDialog<Map<String, dynamic>>(
+    final res = await showDialog<ResultadoComunicadoForm>(
         context: context, builder: (_) => ComunicadoFormDialog(categorias: categorias, existente: c));
-    if (datos == null || !context.mounted) return;
-    final ok = await ejecutarSimple(
-        context, () => ref.read(comunicadosServiceProvider).guardarComunicado(id: c.id, datos: datos),
-        exito: 'Comunicado actualizado');
+    if (res == null || !context.mounted) return;
+    final ok = await guardarComunicadoConAdjuntos(
+        context, ref.read(comunicadosServiceProvider), res,
+        id: c.id, exito: 'Comunicado actualizado');
     if (ok) _refrescar(ref);
   }
 
@@ -189,6 +242,11 @@ class _ComunicadosVista extends ConsumerWidget {
                   EstadoChip(nombreEstado(c.estado), color: colorEstado(c.estado)),
                   if (c.categoriaNombre != null) EstadoChip(c.categoriaNombre!, color: c.colorCategoria),
                   Text(_audiencia(c), style: const TextStyle(color: Colors.black54, fontSize: 12.5)),
+                  if (c.adjuntos.isNotEmpty)
+                    Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Icon(Icons.attach_file_rounded, size: 16, color: Colors.black54),
+                      Text('${c.adjuntos.length}', style: const TextStyle(color: Colors.black54, fontSize: 12.5)),
+                    ]),
                 ]),
               ),
               PopupMenuButton<String>(
@@ -252,7 +310,15 @@ class _VistaPreviaDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) => AlertDialog(
         title: Text(c.titulo),
-        content: SizedBox(width: 520, child: SingleChildScrollView(child: SelectableText(c.contenido))),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              SelectableText(c.contenido),
+              AdjuntosLista(comunicadoId: c.id, adjuntos: c.adjuntos, gestion: true),
+            ]),
+          ),
+        ),
         actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar'))],
       );
 }
@@ -551,8 +617,45 @@ class _ComunicadoFormDialogState extends ConsumerState<ComunicadoFormDialog> {
   List<OpcionRol> _roles = const [];
   List<OpcionUsuario> _destinatarios = [];
   String? _error;
+  final List<ArchivoLocal> _nuevos = [];
+  late final List<AdjuntoComunicado> _existentes = [...?widget.existente?.adjuntos];
+  final Set<int> _eliminar = {};
+  String? _errorArchivos;
 
   bool get _edita => widget.existente != null;
+
+  int get _cantidadArchivos => _existentes.where((a) => !_eliminar.contains(a.id)).length + _nuevos.length;
+
+  Future<void> _elegirArchivos() async {
+    final r = await FilePicker.platform.pickFiles(
+      allowMultiple: true,
+      withData: true,
+      type: FileType.custom,
+      allowedExtensions: extensionesAdjuntos.toList(),
+    );
+    if (r == null) return;
+    final problemas = <String>[];
+    for (final f in r.files) {
+      final bytes = f.bytes;
+      final ext = f.name.contains('.') ? f.name.split('.').last.toLowerCase() : '';
+      if (_cantidadArchivos >= maxAdjuntos) {
+        problemas.add('Máximo $maxAdjuntos archivos por comunicado.');
+        break;
+      }
+      if (bytes == null || bytes.isEmpty) {
+        problemas.add('«${f.name}» está vacío o no se pudo leer.');
+      } else if (!extensionesAdjuntos.contains(ext)) {
+        problemas.add('«${f.name}»: tipo de archivo no permitido.');
+      } else if (bytes.length > maxBytesAdjunto) {
+        problemas.add('«${f.name}» supera ${maxBytesAdjunto ~/ (1024 * 1024)} MB.');
+      } else if (_nuevos.any((n) => n.nombre == f.name && n.tamano == bytes.length)) {
+        problemas.add('«${f.name}» ya está en la lista.');
+      } else {
+        _nuevos.add(ArchivoLocal(nombre: f.name, bytes: bytes));
+      }
+    }
+    setState(() => _errorArchivos = problemas.isEmpty ? null : problemas.join('\n'));
+  }
 
   @override
   void initState() {
@@ -604,15 +707,22 @@ class _ComunicadoFormDialogState extends ConsumerState<ComunicadoFormDialog> {
     if (_expira != null && !_expira!.isAfter(DateTime.now())) error = 'La expiración debe ser futura.';
     setState(() => _error = error);
     if (!valido || error != null) return;
-    Navigator.pop(context, <String, dynamic>{
-      'titulo': _titulo.text.trim(),
-      'contenido': _contenido.text.trim(),
-      'categoria': _categoria == 0 ? null : _categoria,
-      'audiencia': _audiencia,
-      'rol_destino': _audiencia == 'ROL' ? _rol : null,
-      if (_audiencia == 'USUARIOS') 'destinatarios': [for (final u in _destinatarios) u.id],
-      'fecha_expiracion': _expira == null ? null : fechaParaApi(_expira!),
-    });
+    Navigator.pop(
+      context,
+      ResultadoComunicadoForm(
+        datos: <String, dynamic>{
+          'titulo': _titulo.text.trim(),
+          'contenido': _contenido.text.trim(),
+          'categoria': _categoria == 0 ? null : _categoria,
+          'audiencia': _audiencia,
+          'rol_destino': _audiencia == 'ROL' ? _rol : null,
+          if (_audiencia == 'USUARIOS') 'destinatarios': [for (final u in _destinatarios) u.id],
+          'fecha_expiracion': _expira == null ? null : fechaParaApi(_expira!),
+        },
+        nuevos: List.of(_nuevos),
+        eliminar: _eliminar.toList(),
+      ),
+    );
   }
 
   @override
@@ -693,6 +803,40 @@ class _ComunicadoFormDialogState extends ConsumerState<ComunicadoFormDialog> {
                 const SizedBox(height: 14),
                 SelectorFechaHora(
                     etiqueta: 'Expira el (opcional)', valor: _expira, opcional: true, onCambio: (d) => setState(() => _expira = d)),
+                const SizedBox(height: 18),
+                const Text('Archivos adjuntos', style: TextStyle(fontWeight: FontWeight.w800)),
+                const SizedBox(height: 2),
+                Text('Hasta $maxAdjuntos archivos de ${maxBytesAdjunto ~/ (1024 * 1024)} MB: PDF, Word, Excel, PowerPoint, imágenes, TXT, CSV o ZIP.',
+                    style: const TextStyle(color: Colors.black54, fontSize: 12.5)),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: OutlinedButton.icon(
+                    onPressed: _cantidadArchivos >= maxAdjuntos ? null : _elegirArchivos,
+                    icon: const Icon(Icons.attach_file_rounded),
+                    label: const Text('Adjuntar archivos'),
+                  ),
+                ),
+                for (final a in _existentes.where((a) => !_eliminar.contains(a.id)))
+                  _FilaArchivo(
+                    icono: iconoArchivo(a.extension),
+                    nombre: a.nombre,
+                    tamano: a.tamano,
+                    onQuitar: () => setState(() => _eliminar.add(a.id)),
+                  ),
+                for (final a in _nuevos)
+                  _FilaArchivo(
+                    icono: iconoArchivo(a.extension),
+                    nombre: a.nombre,
+                    tamano: a.tamano,
+                    nuevo: true,
+                    onQuitar: () => setState(() => _nuevos.remove(a)),
+                  ),
+                if (_errorArchivos != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(_errorArchivos!, style: const TextStyle(color: colorAlerta, fontSize: 12.5)),
+                  ),
                 if (_error != null)
                   Padding(
                     padding: const EdgeInsets.only(top: 10),
@@ -799,5 +943,44 @@ class _SelectorDestinatariosDialogState extends ConsumerState<SelectorDestinatar
               onPressed: () => Navigator.pop(context, _elegidos.values.toList()),
               child: Text('Aceptar (${_elegidos.length})')),
         ],
+      );
+}
+
+
+class _FilaArchivo extends StatelessWidget {
+  const _FilaArchivo({
+    required this.icono,
+    required this.nombre,
+    required this.tamano,
+    required this.onQuitar,
+    this.nuevo = false,
+  });
+
+  final IconData icono;
+  final String nombre;
+  final int tamano;
+  final bool nuevo;
+  final VoidCallback onQuitar;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: Row(children: [
+          Icon(icono, size: 20, color: AppColors.oceanBlue),
+          const SizedBox(width: 8),
+          Expanded(child: Text(nombre, overflow: TextOverflow.ellipsis)),
+          Text(formatoTamano(tamano), style: const TextStyle(color: Colors.black45, fontSize: 12)),
+          if (nuevo)
+            const Padding(
+              padding: EdgeInsets.only(left: 6),
+              child: EstadoChip('Nuevo', color: colorOk),
+            ),
+          IconButton(
+            tooltip: 'Quitar',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.close_rounded, size: 18),
+            onPressed: onQuitar,
+          ),
+        ]),
       );
 }

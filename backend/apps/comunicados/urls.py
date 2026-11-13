@@ -2,6 +2,7 @@ from django.urls import path
 from rest_framework.routers import SimpleRouter
 
 from .views import (
+    AdjuntoDescargaView,
     AvisoViewSet,
     BloqueoViewSet,
     CategoriaViewSet,
@@ -29,6 +30,7 @@ router.register("notificaciones", NotificacionViewSet, basename="notificacion")
 urlpatterns = [
     path("amenidades/disponibilidad/", DisponibilidadView.as_view(), name="disponibilidad"),
     path("amenidades/<int:pk>/disponibilidad/", DisponibilidadDetalleView.as_view(), name="disponibilidad-detalle"),
+    path("adjuntos/descargar/<str:token>/", AdjuntoDescargaView.as_view(), name="adjunto-descarga"),
     path("comunicados-opciones/roles/", OpcionesRolesView.as_view(), name="opciones-roles"),
     path("comunicados-opciones/usuarios/", OpcionesUsuariosView.as_view(), name="opciones-usuarios"),
 ] + router.urls

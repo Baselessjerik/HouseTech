@@ -36,10 +36,11 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   flutter_riverpod: ^3.4.3
-  file_picker: ^8.1.7
   web: ^1.1.1
   http: ^1.2.0
   flutter_secure_storage: ^9.0.0
+  file_picker: ^10.3.0   # MODULO-2: adjuntar archivos a comunicados
+  url_launcher: ^6.3.0   # MODULO-2: abrir/descargar adjuntos
 
 dev_dependencies:
   flutter_test:

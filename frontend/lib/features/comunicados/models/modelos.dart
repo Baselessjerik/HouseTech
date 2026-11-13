@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 DateTime? _fecha(dynamic v) => v is String ? DateTime.tryParse(v)?.toLocal() : null;
@@ -59,6 +61,36 @@ class CategoriaComunicado {
       );
 }
 
+/// Archivo adjunto ya guardado en el servidor.
+class AdjuntoComunicado {
+  const AdjuntoComunicado({required this.id, required this.nombre, required this.tipo, required this.tamano});
+
+  final int id;
+  final String nombre;
+  final String tipo;
+  final int tamano;
+
+  String get extension => nombre.contains('.') ? nombre.split('.').last.toLowerCase() : '';
+
+  factory AdjuntoComunicado.fromJson(Map<String, dynamic> j) => AdjuntoComunicado(
+        id: _entero(j['id']) ?? 0,
+        nombre: _texto(j['nombre_original']),
+        tipo: _texto(j['tipo_contenido'], 'application/octet-stream'),
+        tamano: _entero(j['tamano_bytes']) ?? 0,
+      );
+}
+
+/// Archivo elegido en el dispositivo, aún sin subir.
+class ArchivoLocal {
+  const ArchivoLocal({required this.nombre, required this.bytes});
+
+  final String nombre;
+  final Uint8List bytes;
+
+  int get tamano => bytes.length;
+  String get extension => nombre.contains('.') ? nombre.split('.').last.toLowerCase() : '';
+}
+
 /// Sirve tanto para un aviso (vista del residente) como para un comunicado (gestión).
 class Comunicado {
   const Comunicado({
@@ -74,6 +106,7 @@ class Comunicado {
     this.rolDestinoId,
     this.rolDestinoCodigo,
     this.destinatarios = const [],
+    this.adjuntos = const [],
     this.fechaProgramada,
     this.fechaPublicacion,
     this.fechaExpiracion,
@@ -92,6 +125,7 @@ class Comunicado {
   final int? rolDestinoId;
   final String? rolDestinoCodigo;
   final List<int> destinatarios;
+  final List<AdjuntoComunicado> adjuntos;
   final DateTime? fechaProgramada;
   final DateTime? fechaPublicacion;
   final DateTime? fechaExpiracion;
@@ -112,6 +146,10 @@ class Comunicado {
         rolDestinoId: _entero(j['rol_destino']),
         rolDestinoCodigo: j['rol_destino_codigo'] as String?,
         destinatarios: (j['destinatarios'] as List? ?? const []).whereType<num>().map((e) => e.toInt()).toList(),
+        adjuntos: (j['adjuntos'] as List? ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(AdjuntoComunicado.fromJson)
+            .toList(),
         fechaProgramada: _fecha(j['fecha_programada']),
         fechaPublicacion: _fecha(j['fecha_publicacion']),
         fechaExpiracion: _fecha(j['fecha_expiracion']),

@@ -104,12 +104,33 @@ class ComunicadosService {
     return PaginaApi.desde(json, Comunicado.fromJson);
   }
 
-  Future<void> guardarComunicado({int? id, required Map<String, dynamic> datos}) async {
+  /// Crea o actualiza el comunicado y devuelve su id (se necesita para subir los adjuntos).
+  Future<int> guardarComunicado({int? id, required Map<String, dynamic> datos}) async {
     if (id == null) {
-      await _c.post(ComunicadosApi.comunicados, body: datos);
-    } else {
-      await _c.patch('${ComunicadosApi.comunicados}$id/', body: datos);
+      final r = await _c.post(ComunicadosApi.comunicados, body: datos);
+      return (r as Map<String, dynamic>)['id'] as int;
     }
+    await _c.patch('${ComunicadosApi.comunicados}$id/', body: datos);
+    return id;
+  }
+
+  // ---------------------------------------------------------------------- adjuntos
+  Future<void> subirAdjunto(int comunicadoId, ArchivoLocal archivo) => _c.postArchivo(
+        '${ComunicadosApi.comunicados}$comunicadoId/adjuntos/',
+        campo: 'archivo',
+        nombre: archivo.nombre,
+        bytes: archivo.bytes,
+      );
+
+  Future<void> quitarAdjunto(int comunicadoId, int adjuntoId) =>
+      _c.delete('${ComunicadosApi.comunicados}$comunicadoId/adjuntos/$adjuntoId/');
+
+  /// Enlace temporal (5 min) para abrir o descargar el archivo en el navegador.
+  /// [gestion] true usa el endpoint de administración; false, el del residente.
+  Future<String> enlaceAdjunto(int comunicadoId, int adjuntoId, {required bool gestion}) async {
+    final base = gestion ? ComunicadosApi.comunicados : ComunicadosApi.avisos;
+    final r = await _c.post('$base$comunicadoId/adjuntos/$adjuntoId/enlace/');
+    return (r as Map<String, dynamic>)['url'] as String;
   }
 
   Future<void> publicar(int id) => _c.post('${ComunicadosApi.comunicados}$id/publicar/');

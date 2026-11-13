@@ -1,4 +1,4 @@
-# Python
+﻿# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -29,3 +29,6 @@ frontend/.flutter-plugins-dependencies
 .idea/
 *.swp
 *.swo
+
+# Local Android configuration
+**/local.properties

@@ -1,4 +1,8 @@
+from urllib.parse import quote
+
 from django.db.models import Q
+from django.http import Http404, HttpResponse
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from drf_spectacular.types import OpenApiTypes
@@ -6,7 +10,8 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.parsers import MultiPartParser
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -15,8 +20,17 @@ from apps.usuarios.models import Rol, Usuario
 
 from . import services
 from .filters import AvisoFilter, BloqueoFilter, ComunicadoFilter, MantenimientoFilter, NotificacionFilter
-from .models import Bloqueo, CategoriaComunicado, Comunicado, ComunicadoHistorial, Mantenimiento, Notificacion
+from .models import (
+    Bloqueo,
+    CategoriaComunicado,
+    Comunicado,
+    ComunicadoAdjunto,
+    ComunicadoHistorial,
+    Mantenimiento,
+    Notificacion,
+)
 from .serializers import (
+    AdjuntoSerializer,
     AvisoSerializer,
     BloqueoEscrituraSerializer,
     BloqueoSerializer,
@@ -26,12 +40,14 @@ from .serializers import (
     ComunicadoHistorialSerializer,
     ComunicadoSerializer,
     DisponibilidadSerializer,
+    EnlaceAdjuntoSerializer,
     MantenimientoEscrituraSerializer,
     MantenimientoSerializer,
     NotificacionSerializer,
     OpcionRolSerializer,
     OpcionUsuarioSerializer,
     ProgramarSerializer,
+    SubirAdjuntoSerializer,
 )
 
 PuedeGestionarBloqueos = requiere_permiso("bloqueos.gestionar")
@@ -46,6 +62,15 @@ PARAM_CONFIRMAR = OpenApiParameter(
 def _confirmar(request):
     valor = request.query_params.get("confirmar", request.data.get("confirmar", False) if hasattr(request.data, "get") else False)
     return str(valor).strip().lower() in ("1", "true", "si", "sí", "yes")
+
+
+def _respuesta_enlace(request, comunicado, adjunto_id):
+    """Enlace firmado y de corta duración para descargar un adjunto (sirve en web, móvil y escritorio)."""
+    adjunto = ComunicadoAdjunto.objects.filter(pk=adjunto_id, comunicado_id=comunicado.pk).defer("contenido").first()
+    if adjunto is None:
+        raise NotFound("El archivo no existe.")
+    ruta = reverse("comunicados:adjunto-descarga", kwargs={"token": services.crear_token_adjunto(adjunto)})
+    return Response({"url": request.build_absolute_uri(ruta), "expira_en_segundos": services.SEGUNDOS_ENLACE})
 
 
 # ------------------------------------------------------------- mantenimientos (RF1, RF8)
@@ -259,7 +284,7 @@ class ComunicadoViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewse
     filterset_class = ComunicadoFilter
     search_fields = ["titulo", "contenido"]
     ordering_fields = ["created_at", "fecha_publicacion", "fecha_programada", "titulo"]
-    http_method_names = ["get", "post", "patch", "head", "options"]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     @extend_schema(request=ComunicadoEscrituraSerializer, responses={201: ComunicadoSerializer})
     def create(self, request, *args, **kwargs):
@@ -296,6 +321,27 @@ class ComunicadoViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewse
         c = services.archivar_comunicado(self.get_object(), request.user)
         return Response(ComunicadoSerializer(c).data)
 
+    @extend_schema(request={"multipart/form-data": SubirAdjuntoSerializer}, responses={201: AdjuntoSerializer})
+    @action(detail=True, methods=["post"], url_path="adjuntos", parser_classes=[MultiPartParser])
+    def adjuntos(self, request, pk=None):
+        """Adjunta un archivo (campo `archivo`). Máx. 5 por comunicado y 10 MB cada uno."""
+        serializer = SubirAdjuntoSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        adjunto = services.agregar_adjunto(self.get_object(), serializer.validated_data["archivo"], request.user)
+        return Response(AdjuntoSerializer(adjunto).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(request=None, responses={204: None})
+    @action(detail=True, methods=["delete"], url_path=r"adjuntos/(?P<adjunto_id>\d+)")
+    def quitar_adjunto(self, request, pk=None, adjunto_id=None):
+        if not services.eliminar_adjunto(self.get_object(), int(adjunto_id)):
+            raise NotFound("El archivo no existe.")
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(request=None, responses={200: EnlaceAdjuntoSerializer})
+    @action(detail=True, methods=["post"], url_path=r"adjuntos/(?P<adjunto_id>\d+)/enlace")
+    def enlace_adjunto(self, request, pk=None, adjunto_id=None):
+        return _respuesta_enlace(request, self.get_object(), int(adjunto_id))
+
     @extend_schema(responses=ComunicadoHistorialSerializer(many=True))
     @action(detail=True, methods=["get"])
     def historial(self, request, pk=None):
@@ -320,6 +366,12 @@ class AvisoViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Ge
             return Comunicado.objects.none()
         services.publicar_programados_vencidos()  # RF13: publicación perezosa
         return services.comunicados_visibles(self.request.user).select_related("categoria", "autor")
+
+    @extend_schema(request=None, responses={200: EnlaceAdjuntoSerializer})
+    @action(detail=True, methods=["post"], url_path=r"adjuntos/(?P<adjunto_id>\d+)/enlace")
+    def enlace_adjunto(self, request, pk=None, adjunto_id=None):
+        # get_object solo encuentra avisos visibles para el usuario: así se respeta la audiencia
+        return _respuesta_enlace(request, self.get_object(), int(adjunto_id))
 
 
 # ------------------------------------------------------------------- notificaciones (RF8, RF16)
@@ -395,3 +447,23 @@ class OpcionesUsuariosView(APIView):
             lista = [int(i) for i in ids.split(",") if i.strip().isdigit()]
             qs = Usuario.objects.filter(activo=True, pk__in=lista).order_by("apellidos", "nombres")
         return Response(OpcionUsuarioSerializer(qs[:25], many=True).data)
+
+
+# ------------------------------------------------------------------- descarga de adjuntos
+class AdjuntoDescargaView(APIView):
+    """Descarga con enlace firmado (vale 5 min). No usa sesión: el enlace se pide antes con permisos."""
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(responses={(200, "application/octet-stream"): OpenApiTypes.BINARY})
+    def get(self, request, token):
+        adjunto = services.adjunto_desde_token(token)
+        if adjunto is None:
+            raise Http404("El enlace no es válido o ya venció.")
+        respuesta = HttpResponse(bytes(adjunto.contenido), content_type=adjunto.tipo_contenido)
+        nombre = adjunto.nombre_original.replace('"', "")
+        respuesta["Content-Disposition"] = f"attachment; filename*=UTF-8''{quote(nombre)}"
+        respuesta["X-Content-Type-Options"] = "nosniff"
+        respuesta["Cache-Control"] = "private, no-store"
+        return respuesta
