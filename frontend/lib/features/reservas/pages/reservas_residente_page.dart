@@ -1,18 +1,35 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../config/app_colors.dart';
 import '../../comunicados/comunicados_api.dart';
 import '../../comunicados/widgets/ui.dart';
+import '../formato_hora.dart';
 import '../models/reservas_models.dart';
 import '../services/reservas_service.dart';
 
 String _fechaYmd(DateTime d) =>
     '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
-String _horaHm(DateTime d) =>
-    '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+String _horaHm(DateTime d) => horaDe(d);
 
-String formatoFechaHora(DateTime d) => fechaHora(d);
+/// Fecha y hora con el formato elegido por el usuario (24 h o a. m./p. m.).
+String formatoFechaHora(DateTime d) => fechaHoraDe(d);
+
+bool _mismoDia(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
+
+/// Busca en una reserva por amenidad, estado, inmueble, residente, observaciones y fecha.
+bool reservaCoincide(ReservaModel r, String consulta) => coincideBusqueda(consulta, [
+      r.amenidadNombre,
+      r.estadoNombre,
+      r.estado,
+      r.inmuebleCodigo,
+      r.residente,
+      r.observaciones,
+      _fechaYmd(r.fechaInicio),
+      fechaHoraDe(r.fechaInicio),
+    ]);
 
 void avisoSnack(BuildContext context, String texto, {bool error = false}) =>
     mostrarMensaje(context, texto, error: error);
@@ -117,10 +134,21 @@ class _ReservasResidentePageState extends State<ReservasResidentePage> {
   int? _amenidadSeleccionadaId;
   DateTime _fechaConsulta = DateTime.now().add(const Duration(days: 1));
 
+  // Búsqueda (barra superior)
+  final _busquedaCtrl = TextEditingController();
+  String _busqueda = '';
+
   @override
   void initState() {
     super.initState();
+    FormatoHora.cargar();
     _cargarTodo();
+  }
+
+  @override
+  void dispose() {
+    _busquedaCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _cargarTodo() async {
@@ -169,8 +197,66 @@ class _ReservasResidentePageState extends State<ReservasResidentePage> {
     }
   }
 
+  // --- Búsqueda ---------------------------------------------------------------------------
+
+  List<ReservaModel> get _reservasFiltradas =>
+      [for (final r in _reservas) if (reservaCoincide(r, _busqueda)) r];
+
+  List<EventoAgendaModel> get _agendaFiltrada => [
+        for (final e in _agenda)
+          if (coincideBusqueda(_busqueda, [
+            e.titulo,
+            e.amenidad,
+            e.estadoNombre,
+            e.motivo,
+            e.tipo == 'BLOQUEO' ? 'bloqueo' : 'reserva',
+            _fechaYmd(e.inicio),
+            fechaHoraDe(e.inicio),
+          ]))
+            e,
+      ];
+
+  List<AmenidadModel> get _amenidadesFiltradas => [
+        for (final a in _amenidades)
+          if (coincideBusqueda(_busqueda, [a.nombre, a.descripcion])) a,
+      ];
+
+  void _alBuscar(String valor) {
+    setState(() => _busqueda = valor);
+    // En «Disponibilidad», si la amenidad elegida ya no coincide, se pasa a la primera que sí.
+    final coincidentes = _amenidadesFiltradas;
+    if (coincidentes.isNotEmpty &&
+        !coincidentes.any((a) => a.id == _amenidadSeleccionadaId)) {
+      setState(() => _amenidadSeleccionadaId = coincidentes.first.id);
+      _cargarDisponibilidad();
+    }
+  }
+
+  Widget _sinResultados() => PanelVacio(
+        icono: Icons.search_off_rounded,
+        titulo: 'Sin resultados para «${_busqueda.trim()}»',
+        subtitulo: 'Prueba con otro nombre de amenidad, estado o inmueble.',
+        accion: TextButton(
+          onPressed: () {
+            _busquedaCtrl.clear();
+            _alBuscar('');
+          },
+          child: const Text('Limpiar búsqueda'),
+        ),
+      );
+
+  // --- Vista ------------------------------------------------------------------------------
+
   @override
   Widget build(BuildContext context) {
+    // Se reconstruye al cambiar entre 24 h y a. m./p. m.
+    return ValueListenableBuilder<bool>(
+      valueListenable: FormatoHora.usar24h,
+      builder: (context, _, __) => _contenido(),
+    );
+  }
+
+  Widget _contenido() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -201,23 +287,33 @@ class _ReservasResidentePageState extends State<ReservasResidentePage> {
               selected: {_tab},
               onSelectionChanged: (s) => setState(() => _tab = s.first),
             ),
-            Row(
-              mainAxisSize: MainAxisSize.min,
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
+                const SelectorFormatoHora(),
                 IconButton(
                   tooltip: 'Actualizar',
                   onPressed: _cargarTodo,
                   icon: const Icon(Icons.refresh_rounded),
                 ),
-                const SizedBox(width: 8),
                 FilledButton.icon(
-                  onPressed: _amenidades.isEmpty ? null : _abrirDialogoSolicitar,
+                  onPressed: _amenidades.isEmpty ? null : () => _abrirDialogoSolicitar(),
                   icon: const Icon(Icons.add_rounded),
                   label: const Text('Solicitar reserva'),
                 ),
               ],
             ),
           ],
+        ),
+        const SizedBox(height: 16),
+        BarraBusquedaReservas(
+          controlador: _busquedaCtrl,
+          onCambio: _alBuscar,
+          sugerencia: _tab == 1
+              ? 'Buscar amenidad…'
+              : 'Buscar por amenidad, estado, inmueble o fecha (AAAA-MM-DD)…',
         ),
         const SizedBox(height: 20),
         if (_cargando)
@@ -254,9 +350,11 @@ class _ReservasResidentePageState extends State<ReservasResidentePage> {
         subtitulo: 'Usa el botón «Solicitar reserva» para agendar una zona común.',
       );
     }
+    final reservas = _reservasFiltradas;
+    if (reservas.isEmpty) return _sinResultados();
     return Column(
       children: [
-        for (final r in _reservas)
+        for (final r in reservas)
           Card(
             elevation: 0,
             margin: const EdgeInsets.only(bottom: 12),
@@ -328,6 +426,18 @@ class _ReservasResidentePageState extends State<ReservasResidentePage> {
 
   Widget _vistaDisponibilidad() {
     final disp = _disponibilidadDia;
+    final coincidentes = _amenidadesFiltradas;
+    if (_busqueda.trim().isNotEmpty && coincidentes.isEmpty) return _sinResultados();
+    // La amenidad elegida siempre está en la lista, aunque no coincida con la búsqueda.
+    final opciones = [
+      ...coincidentes,
+      for (final a in _amenidades)
+        if (a.id == _amenidadSeleccionadaId && !coincidentes.contains(a)) a,
+    ];
+    AmenidadModel? amenidadSel;
+    for (final a in _amenidades) {
+      if (a.id == _amenidadSeleccionadaId) amenidadSel = a;
+    }
     return Card(
       elevation: 0,
       child: Padding(
@@ -343,13 +453,14 @@ class _ReservasResidentePageState extends State<ReservasResidentePage> {
                 SizedBox(
                   width: 260,
                   child: DropdownButtonFormField<int>(
+                    key: ValueKey('amenidad-$_amenidadSeleccionadaId'),
                     initialValue: _amenidadSeleccionadaId,
                     decoration: const InputDecoration(
                       labelText: 'Amenidad',
                       border: OutlineInputBorder(),
                     ),
                     items: [
-                      for (final a in _amenidades)
+                      for (final a in opciones)
                         DropdownMenuItem(value: a.id, child: Text(a.nombre)),
                     ],
                     onChanged: (v) {
@@ -360,11 +471,12 @@ class _ReservasResidentePageState extends State<ReservasResidentePage> {
                 ),
                 OutlinedButton.icon(
                   onPressed: () async {
+                    final hoy = DateTime.now();
                     final f = await showDatePicker(
                       context: context,
                       initialDate: _fechaConsulta,
-                      firstDate: DateTime.now(),
-                      lastDate: DateTime.now().add(const Duration(days: 90)),
+                      firstDate: DateTime(hoy.year, hoy.month, hoy.day),
+                      lastDate: hoy.add(const Duration(days: 90)),
                     );
                     if (f != null) {
                       setState(() => _fechaConsulta = f);
@@ -386,47 +498,25 @@ class _ReservasResidentePageState extends State<ReservasResidentePage> {
               ),
               const SizedBox(height: 6),
               Text(
-                'Duración permitida: ${disp.duracionMinMinutos} a ${disp.duracionMaxMinutos} min'
-                '${disp.capacidad != null ? ' · Aforo máx.: ${disp.capacidad} personas' : ''}',
+                [
+                  if (disp.horarios.isNotEmpty)
+                    'Horario: ${disp.horarios.map((h) => '${horaDeTexto(h['apertura']!)} – ${horaDeTexto(h['cierre']!)}').join(', ')}',
+                  'Duración permitida: ${disp.duracionMinMinutos} a ${disp.duracionMaxMinutos} min',
+                  if (disp.capacidad != null) 'Aforo máx.: ${disp.capacidad} personas',
+                ].join(' · '),
                 style: const TextStyle(color: Colors.black54),
               ),
               const SizedBox(height: 16),
-              const Text('Franjas disponibles para reservar:',
-                  style: TextStyle(fontWeight: FontWeight.w700)),
-              const SizedBox(height: 8),
-              if (disp.libres.isEmpty)
-                const Text('No hay franjas disponibles en esta fecha.',
-                    style: TextStyle(color: Colors.black54))
-              else
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final l in disp.libres)
-                      ChipEstado(
-                        texto: '${_horaHm(l.inicio)} – ${_horaHm(l.fin)}',
-                        color: Colors.green.shade700,
-                      ),
-                  ],
-                ),
-              if (disp.ocupados.isNotEmpty) ...[
-                const SizedBox(height: 18),
-                const Text('Franjas ocupadas o bloqueadas:',
-                    style: TextStyle(fontWeight: FontWeight.w700)),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final o in disp.ocupados)
-                      ChipEstado(
-                        texto:
-                            '${_horaHm(o.inicio)} – ${_horaHm(o.fin)} (${o.detalle ?? o.tipo ?? 'Ocupado'})',
-                        color: Colors.red.shade700,
-                      ),
-                  ],
-                ),
-              ],
+              PanelFranjasDia(
+                disponibilidad: disp,
+                onElegirLibre: amenidadSel == null
+                    ? null
+                    : (franja) => _abrirDialogoSolicitar(
+                          amenidadInicial: amenidadSel,
+                          inicioInicial: franja.inicio,
+                          finInicial: _finSugerido(franja, disp.duracionMaxMinutos),
+                        ),
+              ),
             ],
           ],
         ),
@@ -442,9 +532,11 @@ class _ReservasResidentePageState extends State<ReservasResidentePage> {
         subtitulo: 'No hay reservas ni bloqueos programados para los próximos 30 días.',
       );
     }
+    final agenda = _agendaFiltrada;
+    if (agenda.isEmpty) return _sinResultados();
     return Column(
       children: [
-        for (final e in _agenda)
+        for (final e in agenda)
           Card(
             elevation: 0,
             margin: const EdgeInsets.only(bottom: 10),
@@ -511,167 +603,459 @@ class _ReservasResidentePageState extends State<ReservasResidentePage> {
     }
   }
 
-  Future<void> _abrirDialogoSolicitar() async {
-    AmenidadModel amenidad = _amenidades.first;
-    DateTime fecha = DateTime.now().add(const Duration(days: 2));
-    TimeOfDay inicio = const TimeOfDay(hour: 10, minute: 0);
-    TimeOfDay fin = const TimeOfDay(hour: 12, minute: 0);
-    final personasCtrl = TextEditingController(text: '4');
-    final obsCtrl = TextEditingController();
-    String? errorLocal;
-    bool enviando = false;
-
+  Future<void> _abrirDialogoSolicitar({
+    AmenidadModel? amenidadInicial,
+    DateTime? inicioInicial,
+    DateTime? finInicial,
+  }) async {
     final creada = await showDialog<bool>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setModal) => AlertDialog(
-          title: const Text('Solicitar reserva de zona común'),
-          content: SizedBox(
-            width: 460,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  DropdownButtonFormField<AmenidadModel>(
-                    initialValue: amenidad,
-                    decoration: const InputDecoration(
-                      labelText: 'Zona común / Amenidad',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: [
-                      for (final a in _amenidades)
-                        DropdownMenuItem(
-                          value: a,
-                          child: Text(
-                            '${a.nombre}${a.capacidad != null ? ' (máx. ${a.capacidad})' : ''}',
-                          ),
-                        ),
-                    ],
-                    onChanged: (v) {
-                      if (v != null) setModal(() => amenidad = v);
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
-                            final f = await showDatePicker(
-                              context: ctx,
-                              initialDate: fecha,
-                              firstDate: DateTime.now(),
-                              lastDate: DateTime.now().add(const Duration(days: 90)),
-                            );
-                            if (f != null) setModal(() => fecha = f);
-                          },
-                          icon: const Icon(Icons.calendar_today_rounded, size: 18),
-                          label: Text(_fechaYmd(fecha)),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
-                            final t = await showTimePicker(context: ctx, initialTime: inicio);
-                            if (t != null) setModal(() => inicio = t);
-                          },
-                          icon: const Icon(Icons.access_time_rounded, size: 18),
-                          label: Text(
-                              'Inicio ${inicio.hour.toString().padLeft(2, '0')}:${inicio.minute.toString().padLeft(2, '0')}'),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
-                            final t = await showTimePicker(context: ctx, initialTime: fin);
-                            if (t != null) setModal(() => fin = t);
-                          },
-                          icon: const Icon(Icons.access_time_filled_rounded, size: 18),
-                          label: Text(
-                              'Fin ${fin.hour.toString().padLeft(2, '0')}:${fin.minute.toString().padLeft(2, '0')}'),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: personasCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Número de asistentes',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: obsCtrl,
-                    maxLines: 2,
-                    decoration: const InputDecoration(
-                      labelText: 'Observaciones (opcional)',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  if (errorLocal != null) ...[
-                    const SizedBox(height: 12),
-                    Text(errorLocal!, style: TextStyle(color: Colors.red.shade700)),
-                  ],
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: enviando ? null : () => Navigator.pop(ctx, false),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: enviando
-                  ? null
-                  : () async {
-                      final numPersonas = int.tryParse(personasCtrl.text.trim()) ?? 0;
-                      if (numPersonas < 1) {
-                        setModal(() => errorLocal = 'Ingresa al menos 1 asistente.');
-                        return;
-                      }
-                      final dtIni = DateTime(
-                          fecha.year, fecha.month, fecha.day, inicio.hour, inicio.minute);
-                      final dtFin =
-                          DateTime(fecha.year, fecha.month, fecha.day, fin.hour, fin.minute);
-                      setModal(() {
-                        enviando = true;
-                        errorLocal = null;
-                      });
-                      try {
-                        await _svc.crearReserva({
-                          'amenidad': amenidad.id,
-                          'fecha_inicio': dtIni.toUtc().toIso8601String(),
-                          'fecha_fin': dtFin.toUtc().toIso8601String(),
-                          'num_personas': numPersonas,
-                          if (obsCtrl.text.trim().isNotEmpty)
-                            'observaciones': obsCtrl.text.trim(),
-                        });
-                        if (ctx.mounted) Navigator.pop(ctx, true);
-                      } on ApiException catch (e) {
-                        setModal(() {
-                          enviando = false;
-                          errorLocal = e.mensaje;
-                        });
-                      }
-                    },
-              child: const Text('Enviar solicitud'),
-            ),
-          ],
-        ),
+      builder: (_) => DialogoSolicitarReserva(
+        servicio: _svc,
+        amenidades: _amenidades,
+        amenidadInicial: amenidadInicial,
+        inicioInicial: inicioInicial,
+        finInicial: finInicial,
       ),
     );
-
     if (creada == true && mounted) {
       avisoSnack(context, 'Reserva registrada correctamente.');
       await _cargarTodo();
     }
+  }
+}
+
+/// Fin sugerido al elegir una franja libre: lo que alcance de la franja sin pasar la duración máxima.
+DateTime _finSugerido(FranjaTiempoModel franja, int duracionMaxMinutos) {
+  final maximo = franja.inicio.add(Duration(minutes: duracionMaxMinutos));
+  return franja.fin.isBefore(maximo) ? franja.fin : maximo;
+}
+
+/// Franjas del día: libres (se pueden tocar para reservar), ocupadas/bloqueadas y horas que ya pasaron.
+class PanelFranjasDia extends StatelessWidget {
+  const PanelFranjasDia({super.key, required this.disponibilidad, this.onElegirLibre});
+
+  final DisponibilidadDiaModel disponibilidad;
+  final ValueChanged<FranjaTiempoModel>? onElegirLibre;
+
+  /// Desde la apertura hasta `reservable_desde`, si ese corte cae dentro del día consultado.
+  ({DateTime desde, DateTime hasta})? _franjaPasada() {
+    final d = disponibilidad;
+    final corte = d.reservableDesde;
+    final fecha = DateTime.tryParse(d.fecha);
+    if (corte == null || fecha == null || d.horarios.isEmpty) return null;
+    final ap = d.horarios.first['apertura']!.split(':');
+    final apertura = DateTime(fecha.year, fecha.month, fecha.day,
+        int.tryParse(ap[0]) ?? 0, ap.length > 1 ? int.tryParse(ap[1]) ?? 0 : 0);
+    final finDia = DateTime(fecha.year, fecha.month, fecha.day + 1);
+    if (!corte.isAfter(apertura)) return null;
+    return (desde: apertura, hasta: corte.isBefore(finDia) ? corte : finDia);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final d = disponibilidad;
+    final pasada = _franjaPasada();
+    final hoy = pasada != null && _mismoDia(pasada.desde, DateTime.now());
+    final todoPasado = pasada != null && !pasada.hasta.isBefore(DateTime.tryParse(d.fecha)!.add(const Duration(days: 1)));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (!d.abierta)
+          const Text('La amenidad no abre este día.', style: TextStyle(color: Colors.black54))
+        else ...[
+          Text(
+            onElegirLibre != null
+                ? 'Horarios disponibles (toca uno para reservarlo):'
+                : 'Horarios disponibles:',
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          if (d.libres.isEmpty)
+            Text(
+              todoPasado
+                  ? 'Este día ya pasó; ningún horario está disponible.'
+                  : 'No hay horarios disponibles en esta fecha.',
+              style: const TextStyle(color: Colors.black54),
+            )
+          else
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final l in d.libres)
+                  ActionChip(
+                    avatar: Icon(Icons.check_circle_rounded, size: 18, color: Colors.green.shade700),
+                    label: Text('${horaDe(l.inicio)} – ${horaDe(l.fin)} · Disponible'),
+                    side: BorderSide(color: Colors.green.shade300),
+                    backgroundColor: Colors.green.shade50,
+                    onPressed: onElegirLibre == null ? null : () => onElegirLibre!(l),
+                  ),
+              ],
+            ),
+          if (d.ocupados.isNotEmpty || (pasada != null && !todoPasado)) ...[
+            const SizedBox(height: 18),
+            const Text('Horarios no disponibles:', style: TextStyle(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (pasada != null && !todoPasado)
+                  ChipEstado(
+                    texto: '${horaDe(pasada.desde)} – ${horaDe(pasada.hasta)} · '
+                        '${hoy ? 'Ya pasó o sin anticipación mínima' : 'Sin anticipación mínima'}',
+                    color: Colors.grey.shade700,
+                  ),
+                for (final o in d.ocupados)
+                  ChipEstado(
+                    texto: '${horaDe(o.inicio)} – ${horaDe(o.fin)} · '
+                        '${o.tipo == 'BLOQUEO' ? 'Bloqueado${o.detalle != null ? ': ${o.detalle}' : ''}' : 'Ocupado'}',
+                    color: Colors.red.shade700,
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ],
+    );
+  }
+}
+
+/// Diálogo para solicitar una reserva. Mientras el residente elige amenidad, fecha y horas,
+/// muestra los horarios del día y verifica en el backend si el horario está disponible.
+class DialogoSolicitarReserva extends StatefulWidget {
+  const DialogoSolicitarReserva({
+    super.key,
+    required this.servicio,
+    required this.amenidades,
+    this.amenidadInicial,
+    this.inicioInicial,
+    this.finInicial,
+  });
+
+  final ReservasService servicio;
+  final List<AmenidadModel> amenidades;
+  final AmenidadModel? amenidadInicial;
+  final DateTime? inicioInicial;
+  final DateTime? finInicial;
+
+  @override
+  State<DialogoSolicitarReserva> createState() => _DialogoSolicitarReservaState();
+}
+
+class _DialogoSolicitarReservaState extends State<DialogoSolicitarReserva> {
+  late AmenidadModel _amenidad;
+  late DateTime _fecha;
+  late TimeOfDay _inicio;
+  late TimeOfDay _fin;
+  final _personasCtrl = TextEditingController(text: '4');
+  final _obsCtrl = TextEditingController();
+  String? _errorLocal;
+  bool _enviando = false;
+
+  DisponibilidadDiaModel? _dia;
+  String? _claveDia;
+  VerificacionHorarioModel? _verificacion;
+  bool _verificando = true; // la primera verificación arranca en initState
+  int _consulta = 0;
+  Timer? _espera;
+
+  @override
+  void initState() {
+    super.initState();
+    _amenidad = widget.amenidadInicial ?? widget.amenidades.first;
+    final ini = widget.inicioInicial;
+    final fin = widget.finInicial;
+    _fecha = ini ?? DateTime.now().add(const Duration(days: 2));
+    _inicio = ini != null ? TimeOfDay.fromDateTime(ini) : const TimeOfDay(hour: 10, minute: 0);
+    _fin = fin != null ? TimeOfDay.fromDateTime(fin) : const TimeOfDay(hour: 12, minute: 0);
+    _consultar();
+  }
+
+  @override
+  void dispose() {
+    _espera?.cancel();
+    _personasCtrl.dispose();
+    _obsCtrl.dispose();
+    super.dispose();
+  }
+
+  DateTime get _dtInicio => DateTime(_fecha.year, _fecha.month, _fecha.day, _inicio.hour, _inicio.minute);
+  DateTime get _dtFin => DateTime(_fecha.year, _fecha.month, _fecha.day, _fin.hour, _fin.minute);
+
+  /// Vuelve a verificar tras un cambio (con una pequeña espera si se está escribiendo).
+  void _cambio({bool escribiendo = false}) {
+    _espera?.cancel();
+    if (escribiendo) {
+      _espera = Timer(const Duration(milliseconds: 400), _consultar);
+    } else {
+      _consultar();
+    }
+  }
+
+  Future<void> _consultar() async {
+    final consulta = ++_consulta;
+    final inicio = _dtInicio;
+    final fin = _dtFin;
+    final clave = '${_amenidad.id}-${_fechaYmd(_fecha)}';
+    if (!_verificando) setState(() => _verificando = true);
+    try {
+      final dia = clave == _claveDia && _dia != null
+          ? _dia!
+          : await widget.servicio.disponibilidadDia(_amenidad.id, _fechaYmd(_fecha));
+      VerificacionHorarioModel verificacion;
+      if (!inicio.isAfter(DateTime.now())) {
+        verificacion = const VerificacionHorarioModel(
+          disponible: false,
+          motivos: ['Ese horario ya pasó; ya no está disponible.'],
+          codigos: ['HORARIO_PASADO'],
+        );
+      } else if (!fin.isAfter(inicio)) {
+        verificacion = const VerificacionHorarioModel(
+          disponible: false,
+          motivos: ['La hora de fin debe ser posterior a la hora de inicio.'],
+          codigos: ['FECHAS_INVALIDAS'],
+        );
+      } else {
+        verificacion = await widget.servicio.verificarHorario(
+          _amenidad.id,
+          inicio: inicio,
+          fin: fin,
+          numPersonas: int.tryParse(_personasCtrl.text.trim()),
+        );
+      }
+      if (!mounted || consulta != _consulta) return;
+      setState(() {
+        _dia = dia;
+        _claveDia = clave;
+        _verificacion = verificacion;
+        _verificando = false;
+      });
+    } catch (_) {
+      // Si la verificación falla, no se bloquea el envío: el backend valida igual al crear.
+      if (!mounted || consulta != _consulta) return;
+      setState(() {
+        _verificacion = null;
+        _verificando = false;
+      });
+    }
+  }
+
+  void _elegirFranja(FranjaTiempoModel franja) {
+    final fin = _finSugerido(franja, _dia?.duracionMaxMinutos ?? 240);
+    setState(() {
+      _inicio = TimeOfDay.fromDateTime(franja.inicio);
+      _fin = TimeOfDay.fromDateTime(fin);
+    });
+    _cambio();
+  }
+
+  Future<void> _enviar() async {
+    final numPersonas = int.tryParse(_personasCtrl.text.trim()) ?? 0;
+    if (numPersonas < 1) {
+      setState(() => _errorLocal = 'Ingresa al menos 1 asistente.');
+      return;
+    }
+    setState(() {
+      _enviando = true;
+      _errorLocal = null;
+    });
+    try {
+      await widget.servicio.crearReserva({
+        'amenidad': _amenidad.id,
+        'fecha_inicio': _dtInicio.toUtc().toIso8601String(),
+        'fecha_fin': _dtFin.toUtc().toIso8601String(),
+        'num_personas': numPersonas,
+        if (_obsCtrl.text.trim().isNotEmpty) 'observaciones': _obsCtrl.text.trim(),
+      });
+      if (mounted) Navigator.pop(context, true);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _enviando = false;
+        _errorLocal = e.mensaje;
+      });
+      _cambio(); // el horario pudo ocuparse mientras tanto
+    }
+  }
+
+  Widget _estadoHorario() {
+    if (_verificando && _verificacion == null) {
+      return const Row(
+        children: [
+          SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+          SizedBox(width: 10),
+          Text('Verificando horario…'),
+        ],
+      );
+    }
+    final v = _verificacion;
+    if (v == null) return const SizedBox.shrink();
+    final color = v.disponible ? Colors.green.shade700 : Colors.red.shade700;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withAlpha(20),
+        border: Border.all(color: color.withAlpha(90)),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(v.disponible ? Icons.check_circle_rounded : Icons.cancel_rounded, color: color),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  v.disponible
+                      ? 'Este horario está disponible'
+                      : v.yaNoDisponible
+                          ? 'Ese horario ya no está disponible'
+                          : 'Ese horario no se puede reservar',
+                  style: TextStyle(color: color, fontWeight: FontWeight.w700),
+                ),
+              ),
+              if (_verificando)
+                const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+            ],
+          ),
+          for (final m in v.motivos)
+            Padding(
+              padding: const EdgeInsets.only(left: 32, top: 4),
+              child: Text('• $m', style: TextStyle(color: color)),
+            ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hoy = DateTime.now();
+    final bloqueado = _verificacion != null && !_verificacion!.disponible;
+    return AlertDialog(
+      title: const Text('Solicitar reserva de zona común'),
+      content: SizedBox(
+        width: 520,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              DropdownButtonFormField<AmenidadModel>(
+                initialValue: _amenidad,
+                decoration: const InputDecoration(
+                  labelText: 'Zona común / Amenidad',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  for (final a in widget.amenidades)
+                    DropdownMenuItem(
+                      value: a,
+                      child: Text('${a.nombre}${a.capacidad != null ? ' (máx. ${a.capacidad})' : ''}'),
+                    ),
+                ],
+                onChanged: (v) {
+                  if (v == null) return;
+                  setState(() => _amenidad = v);
+                  _cambio();
+                },
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final f = await showDatePicker(
+                          context: context,
+                          initialDate: _fecha.isBefore(hoy) ? hoy : _fecha,
+                          firstDate: DateTime(hoy.year, hoy.month, hoy.day),
+                          lastDate: hoy.add(const Duration(days: 90)),
+                        );
+                        if (f == null) return;
+                        setState(() => _fecha = f);
+                        _cambio();
+                      },
+                      icon: const Icon(Icons.calendar_today_rounded, size: 18),
+                      label: Text(_fechaYmd(_fecha)),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final t = await elegirHora(context, _inicio);
+                        if (t == null) return;
+                        setState(() => _inicio = t);
+                        _cambio();
+                      },
+                      icon: const Icon(Icons.access_time_rounded, size: 18),
+                      label: Text('Inicio ${horaDeTime(_inicio)}'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final t = await elegirHora(context, _fin);
+                        if (t == null) return;
+                        setState(() => _fin = t);
+                        _cambio();
+                      },
+                      icon: const Icon(Icons.access_time_filled_rounded, size: 18),
+                      label: Text('Fin ${horaDeTime(_fin)}'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              _estadoHorario(),
+              if (_dia != null) ...[
+                const SizedBox(height: 16),
+                PanelFranjasDia(disponibilidad: _dia!, onElegirLibre: _elegirFranja),
+              ],
+              const SizedBox(height: 16),
+              TextField(
+                controller: _personasCtrl,
+                keyboardType: TextInputType.number,
+                onChanged: (_) => _cambio(escribiendo: true),
+                decoration: const InputDecoration(
+                  labelText: 'Número de asistentes',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _obsCtrl,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: 'Observaciones (opcional)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              if (_errorLocal != null) ...[
+                const SizedBox(height: 12),
+                Text(_errorLocal!, style: TextStyle(color: Colors.red.shade700)),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _enviando ? null : () => Navigator.pop(context, false),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: _enviando || bloqueado ? null : _enviar,
+          child: const Text('Enviar solicitud'),
+        ),
+      ],
+    );
   }
 }
 

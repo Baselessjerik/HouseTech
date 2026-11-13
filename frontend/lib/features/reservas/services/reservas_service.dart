@@ -46,6 +46,24 @@ class ReservasService {
     return DisponibilidadDiaModel.fromJson(json as Map<String, dynamic>);
   }
 
+  /// ¿Se puede reservar este horario? (mismas validaciones que al crear la reserva).
+  Future<VerificacionHorarioModel> verificarHorario(
+    int amenidadId, {
+    required DateTime inicio,
+    required DateTime fin,
+    int? numPersonas,
+  }) async {
+    final json = await _c.get(
+      '$_amenidades$amenidadId/verificar/',
+      query: _q({
+        'inicio': inicio.toUtc().toIso8601String(),
+        'fin': fin.toUtc().toIso8601String(),
+        'num_personas': numPersonas?.toString(),
+      }),
+    );
+    return VerificacionHorarioModel.fromJson(json as Map<String, dynamic>);
+  }
+
   // --- Reservas ---
   Future<PaginaApi<ReservaModel>> listarReservas({
     int pagina = 1,

@@ -165,7 +165,9 @@ def verificar_disponibilidad(
         motivo("DURACION_MAX", f"La duración máxima es de {regla.duracion_max_minutos} minutos.")
 
     # Anticipación
-    if inicio < ahora + dt.timedelta(hours=regla.anticipacion_min_horas):
+    if inicio <= ahora:
+        motivo("HORARIO_PASADO", "Ese horario ya pasó; ya no está disponible.")
+    elif inicio < ahora + dt.timedelta(hours=regla.anticipacion_min_horas):
         motivo("ANTICIPACION_MIN", f"Debes reservar con al menos {regla.anticipacion_min_horas} hora(s) de anticipación.")
     if inicio > ahora + dt.timedelta(days=regla.anticipacion_max_dias):
         motivo("ANTICIPACION_MAX", f"Solo puedes reservar con máximo {regla.anticipacion_max_dias} día(s) de anticipación.")
@@ -233,6 +235,8 @@ def disponibilidad_dia(amenidad: Amenidad, fecha: dt.date, *, ahora: dt.datetime
         "duracion_min_minutos": regla.duracion_min_minutos,
         "duracion_max_minutos": regla.duracion_max_minutos,
         "horarios": [{"apertura": h.hora_apertura.strftime("%H:%M"), "cierre": h.hora_cierre.strftime("%H:%M")} for h in horarios],
+        # Antes de este momento ya no se puede reservar (hora pasada o sin la anticipación mínima)
+        "reservable_desde": iso_local(desde),
         "ocupados": [{**o, "inicio": iso_local(o["inicio"]), "fin": iso_local(o["fin"])} for o in sorted(ocupados, key=lambda x: x["inicio"])],
         "libres": [{"inicio": iso_local(i), "fin": iso_local(f)} for i, f in recortados] if amenidad.activa else [],
     }

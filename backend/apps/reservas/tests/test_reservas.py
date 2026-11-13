@@ -108,7 +108,27 @@ def test_duracion_y_anticipacion(residente_client, salon):
     lejana = cuerpo(salon, dias=90)  # más allá de los 60 días permitidos
     assert "ANTICIPACION_MAX" in codigos(residente_client.post(RESERVAS, lejana, format="json"))
     pasada = cuerpo(salon, dias=-2)
-    assert "ANTICIPACION_MIN" in codigos(residente_client.post(RESERVAS, pasada, format="json"))
+    assert "HORARIO_PASADO" in codigos(residente_client.post(RESERVAS, pasada, format="json"))
+    pronto = {
+        **cuerpo(salon),
+        "fecha_inicio": (timezone.now() + dt.timedelta(minutes=20)).isoformat(),
+        "fecha_fin": (timezone.now() + dt.timedelta(minutes=100)).isoformat(),
+    }  # aún no pasa, pero no cumple la anticipación mínima
+    assert "ANTICIPACION_MIN" in codigos(residente_client.post(RESERVAS, pronto, format="json"))
+
+
+def test_verificar_horario_pasado(residente_client, salon):
+    r = residente_client.get(
+        f"{AMENIDADES}{salon.pk}/verificar/",
+        {"inicio": en_dias(-1, 10).isoformat(), "fin": en_dias(-1, 12).isoformat()},
+    )
+    assert r.status_code == 200 and r.data["disponible"] is False
+    assert "HORARIO_PASADO" in [m["codigo"] for m in r.data["motivos"]]
+
+
+def test_disponibilidad_informa_desde_cuando_se_puede_reservar(residente_client, salon):
+    r = residente_client.get(f"{AMENIDADES}{salon.pk}/disponibilidad/", {"fecha": timezone.localdate().isoformat()})
+    assert r.status_code == 200 and r.data["reservable_desde"]
 
 
 def test_cupo_mensual_por_inmueble(residente_client, salon):

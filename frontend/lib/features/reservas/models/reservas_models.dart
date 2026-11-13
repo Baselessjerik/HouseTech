@@ -267,6 +267,7 @@ class DisponibilidadDiaModel {
     this.horarios = const [],
     this.ocupados = const [],
     this.libres = const [],
+    this.reservableDesde,
   });
 
   final int amenidadId;
@@ -280,6 +281,9 @@ class DisponibilidadDiaModel {
   final List<Map<String, String>> horarios;
   final List<FranjaTiempoModel> ocupados;
   final List<FranjaTiempoModel> libres;
+
+  /// Antes de este momento ya no se puede reservar (hora pasada o sin anticipación mínima).
+  final DateTime? reservableDesde;
 
   factory DisponibilidadDiaModel.fromJson(Map<String, dynamic> j) => DisponibilidadDiaModel(
         amenidadId: j['amenidad_id'] as int? ?? 0,
@@ -304,6 +308,41 @@ class DisponibilidadDiaModel {
         libres: ((j['libres'] as List?) ?? const [])
             .whereType<Map<String, dynamic>>()
             .map(FranjaTiempoModel.fromJson)
+            .toList(),
+        reservableDesde: _dt(j['reservable_desde']),
+      );
+}
+
+/// Resultado de `GET /amenidades/{id}/verificar/`: si el horario se puede reservar y, si no, por qué.
+class VerificacionHorarioModel {
+  const VerificacionHorarioModel({
+    required this.disponible,
+    this.motivos = const [],
+    this.codigos = const [],
+  });
+
+  final bool disponible;
+
+  /// Mensajes legibles de por qué no se puede reservar.
+  final List<String> motivos;
+
+  /// Códigos del backend (`RESERVA_SOLAPADA`, `HORARIO_PASADO`, `BLOQUEADA`…).
+  final List<String> codigos;
+
+  /// El horario estaba ocupado, bloqueado o ya pasó.
+  bool get yaNoDisponible =>
+      codigos.any(const {'RESERVA_SOLAPADA', 'BLOQUEADA', 'HORARIO_PASADO'}.contains);
+
+  factory VerificacionHorarioModel.fromJson(Map<String, dynamic> j) => VerificacionHorarioModel(
+        disponible: j['disponible'] as bool? ?? false,
+        motivos: ((j['motivos'] as List?) ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map((m) => '${m['detalle'] ?? m['codigo'] ?? ''}')
+            .where((m) => m.isNotEmpty)
+            .toList(),
+        codigos: ((j['motivos'] as List?) ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map((m) => '${m['codigo'] ?? ''}')
             .toList(),
       );
 }

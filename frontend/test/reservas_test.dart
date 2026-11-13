@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:housetech_frontend/features/comunicados/comunicados_api.dart';
+import 'package:housetech_frontend/features/reservas/formato_hora.dart';
 import 'package:housetech_frontend/features/reservas/models/reservas_models.dart';
 import 'package:housetech_frontend/features/reservas/pages/amenidades_admin_page.dart';
 import 'package:housetech_frontend/features/reservas/pages/reservas_residente_page.dart';
@@ -36,6 +37,9 @@ class _FakeApiClient extends ApiClient {
           },
         }
       ];
+    }
+    if (p.contains('/verificar/')) {
+      return {'disponible': true, 'motivos': []};
     }
     if (p.contains('/disponibilidad/')) {
       return {
@@ -202,5 +206,68 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('12.24%'), findsNWidgets(2));
   });
-}
 
+  test('formatoHora respeta 24 h y a. m./p. m.', () {
+    FormatoHora.usar24h.value = true;
+    expect(formatoHora(14, 5), '14:05');
+    expect(horaDeTexto('08:30'), '08:30');
+    FormatoHora.usar24h.value = false;
+    expect(formatoHora(14, 5), '2:05 p. m.');
+    expect(formatoHora(0, 0), '12:00 a. m.');
+    expect(formatoHora(12, 0), '12:00 p. m.');
+    expect(horaDeTexto('08:30'), '8:30 a. m.');
+  });
+
+  test('coincideBusqueda ignora mayúsculas y tildes', () {
+    expect(coincideBusqueda('salon', ['Salón social']), isTrue);
+    expect(coincideBusqueda('SALÓN t1', ['Salón social', 'T1-101']), isTrue);
+    expect(coincideBusqueda('piscina', ['Salón social']), isFalse);
+    expect(coincideBusqueda('', ['Salón social']), isTrue);
+  });
+
+  test('VerificacionHorarioModel distingue horarios ocupados o pasados', () {
+    final v = VerificacionHorarioModel.fromJson({
+      'disponible': false,
+      'motivos': [
+        {'codigo': 'RESERVA_SOLAPADA', 'detalle': 'Ya existe una reserva de 10:00 a 12:00 en ese horario.'},
+      ],
+    });
+    expect(v.disponible, isFalse);
+    expect(v.yaNoDisponible, isTrue);
+    expect(v.motivos.single, contains('Ya existe una reserva'));
+  });
+
+  testWidgets('La búsqueda superior filtra las reservas del residente', (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    await tester.pumpWidget(
+      MaterialApp(home: Scaffold(body: ReservasResidentePage(servicio: _mockServicio()))),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'piscina');
+    await tester.pumpAndSettle();
+    expect(find.text('Sin resultados para «piscina»'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).first, 'salon t1-101');
+    await tester.pumpAndSettle();
+    expect(find.text('Inmueble: T1-101'), findsOneWidget);
+  });
+
+  testWidgets('El diálogo de solicitud verifica si el horario está disponible', (tester) async {
+    tester.view.physicalSize = const Size(1200, 1000);
+    tester.view.devicePixelRatio = 1;
+    await tester.pumpWidget(
+      MaterialApp(home: Scaffold(body: ReservasResidentePage(servicio: _mockServicio()))),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Disponibilidad'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('· Disponible'), findsWidgets);
+
+    await tester.tap(find.text('Solicitar reserva'));
+    await tester.pumpAndSettle();
+    expect(find.text('Este horario está disponible'), findsOneWidget);
+  });
+}

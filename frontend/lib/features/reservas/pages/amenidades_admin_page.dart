@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../config/app_colors.dart';
 import '../../comunicados/comunicados_api.dart';
+import '../formato_hora.dart';
 import '../models/reservas_models.dart';
 import '../services/reservas_service.dart';
 import 'reservas_residente_page.dart';
@@ -28,11 +29,46 @@ class _AmenidadesAdminPageState extends State<AmenidadesAdminPage> {
   bool _cargando = true;
   String? _error;
 
+  // Búsqueda (barra superior)
+  final _busquedaCtrl = TextEditingController();
+  String _busqueda = '';
+
   @override
   void initState() {
     super.initState();
+    FormatoHora.cargar();
     _cargarTodo();
   }
+
+  @override
+  void dispose() {
+    _busquedaCtrl.dispose();
+    super.dispose();
+  }
+
+  List<AmenidadModel> get _amenidadesFiltradas => [
+        for (final a in _amenidades)
+          if (coincideBusqueda(_busqueda, [a.nombre, a.descripcion, a.activa ? 'activa' : 'inactiva'])) a,
+      ];
+
+  List<ReservaModel> get _reservasFiltradas =>
+      [for (final r in _reservas) if (reservaCoincide(r, _busqueda)) r];
+
+  List<OcupacionAmenidadModel> _ocupacionFiltrada(List<OcupacionAmenidadModel> filas) =>
+      [for (final a in filas) if (coincideBusqueda(_busqueda, [a.amenidad])) a];
+
+  Widget _sinResultados() => PanelVacio(
+        icono: Icons.search_off_rounded,
+        titulo: 'Sin resultados para «${_busqueda.trim()}»',
+        subtitulo: 'Prueba con otro nombre, estado, residente o inmueble.',
+        accion: TextButton(
+          onPressed: () {
+            _busquedaCtrl.clear();
+            setState(() => _busqueda = '');
+          },
+          child: const Text('Limpiar búsqueda'),
+        ),
+      );
 
   Future<void> _cargarTodo() async {
     setState(() {
@@ -66,6 +102,14 @@ class _AmenidadesAdminPageState extends State<AmenidadesAdminPage> {
 
   @override
   Widget build(BuildContext context) {
+    // Se reconstruye al cambiar entre 24 h y a. m./p. m.
+    return ValueListenableBuilder<bool>(
+      valueListenable: FormatoHora.usar24h,
+      builder: (context, _, __) => _contenido(),
+    );
+  }
+
+  Widget _contenido() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -96,23 +140,24 @@ class _AmenidadesAdminPageState extends State<AmenidadesAdminPage> {
               selected: {_tab},
               onSelectionChanged: (s) => setState(() => _tab = s.first),
             ),
-            Row(
-              mainAxisSize: MainAxisSize.min,
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
+                const SelectorFormatoHora(),
                 IconButton(
                   tooltip: 'Actualizar',
                   onPressed: _cargarTodo,
                   icon: const Icon(Icons.refresh_rounded),
                 ),
                 if (_tab == 0) ...[
-                  const SizedBox(width: 8),
                   FilledButton.icon(
                     onPressed: () => _abrirFormularioAmenidad(),
                     icon: const Icon(Icons.add_rounded),
                     label: const Text('Nueva amenidad'),
                   ),
                 ] else if (_tab == 1) ...[
-                  const SizedBox(width: 8),
                   OutlinedButton.icon(
                     onPressed: _ejecutarProcesamiento,
                     icon: const Icon(Icons.autorenew_rounded),
@@ -122,6 +167,16 @@ class _AmenidadesAdminPageState extends State<AmenidadesAdminPage> {
               ],
             ),
           ],
+        ),
+        const SizedBox(height: 16),
+        BarraBusquedaReservas(
+          controlador: _busquedaCtrl,
+          onCambio: (v) => setState(() => _busqueda = v),
+          sugerencia: switch (_tab) {
+            0 => 'Buscar zona común…',
+            1 => 'Buscar por amenidad, residente, inmueble, estado o fecha (AAAA-MM-DD)…',
+            _ => 'Buscar amenidad en el reporte…',
+          },
         ),
         const SizedBox(height: 20),
         if (_cargando)
@@ -158,9 +213,11 @@ class _AmenidadesAdminPageState extends State<AmenidadesAdminPage> {
         subtitulo: 'Crea la primera amenidad para configurar su aforo, horarios y políticas.',
       );
     }
+    final amenidades = _amenidadesFiltradas;
+    if (amenidades.isEmpty) return _sinResultados();
     return Column(
       children: [
-        for (final a in _amenidades)
+        for (final a in amenidades)
           Card(
             elevation: 0,
             margin: const EdgeInsets.only(bottom: 12),
@@ -204,6 +261,14 @@ class _AmenidadesAdminPageState extends State<AmenidadesAdminPage> {
                       ),
                       if (a.reglas.maxReservasMesInmueble != null)
                         Text('Cupo mensual/inmueble: ${a.reglas.maxReservasMesInmueble}'),
+                      if (a.horarios.any((h) => h.activo))
+                        Text(
+                          'Horario: ${[
+                            for (final h in a.horarios)
+                              if (h.activo)
+                                '${h.diaNombre} ${horaDeTexto(h.horaApertura)} – ${horaDeTexto(h.horaCierre)}',
+                          ].join(', ')}',
+                        ),
                     ],
                   ),
                   const SizedBox(height: 12),
@@ -269,8 +334,10 @@ class _AmenidadesAdminPageState extends State<AmenidadesAdminPage> {
             titulo: 'No hay reservas con el filtro seleccionado',
             subtitulo: 'Cambia el filtro de estado para consultar otras solicitudes.',
           )
+        else if (_reservasFiltradas.isEmpty)
+          _sinResultados()
         else
-          for (final r in _reservas)
+          for (final r in _reservasFiltradas)
             Card(
               elevation: 0,
               margin: const EdgeInsets.only(bottom: 12),
@@ -389,14 +456,14 @@ class _AmenidadesAdminPageState extends State<AmenidadesAdminPage> {
                 const Text('Detalle por amenidad',
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 12),
-                for (final a in rep.amenidades)
+                for (final a in _ocupacionFiltrada(rep.amenidades))
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     title: Text(a.amenidad, style: const TextStyle(fontWeight: FontWeight.w600)),
                     subtitle: Text(
                       'Reservadas: ${a.horasReservadas} h / ${a.horasDisponibles} h · '
                       'Reservas: ${a.reservas} · Cancelación: ${a.tasaCancelacionPct}%'
-                      '${a.horaPico != null ? ' · Hora pico: ${a.horaPico}' : ''}',
+                      '${a.horaPico != null ? ' · Hora pico: ${horaDeTexto(a.horaPico!)}' : ''}',
                     ),
                     trailing: ChipEstado(
                       texto: a.ocupacionPct != null ? '${a.ocupacionPct}%' : '0%',

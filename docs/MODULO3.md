@@ -67,6 +67,13 @@ El Módulo 3 gestiona el ciclo completo de uso de las zonas comunes (amenidades)
   2. *Solicitudes y reservas*: bandeja administrativa para confirmar, rechazar, cancelar, ver trazabilidad y ejecutar el procesamiento de vencidas.
   3. *Ocupación*: indicadores de reservas confirmadas, pendientes, canceladas y horas reservadas por amenidad.
 - `reservas_menu.dart`: Integración con `AppShell` según los permisos efectivos del usuario.
+- `formato_hora.dart`: Preferencia de formato de hora (24 h / a. m.–p. m.) guardada en el dispositivo, selector de hora que la respeta y utilidades de la barra de búsqueda.
+
+### Ajustes de usabilidad (noviembre 2026)
+- **Disponibilidad al reservar:** el diálogo *Solicitar reserva* muestra los horarios del día (disponibles, ocupados, bloqueados y ya pasados) y consulta `amenidades/{id}/verificar/` cada vez que cambia la amenidad, la fecha, las horas o el número de asistentes. Indica «Este horario está disponible» o «Ese horario ya no está disponible» con los motivos, y deshabilita el envío si no se puede reservar. Tocar una franja disponible la carga en el formulario.
+- **Horas pasadas:** un horario cuyo inicio ya pasó se rechaza con el código `HORARIO_PASADO`. `disponibilidad` devuelve `reservable_desde` para marcar en gris las horas del día que ya no se pueden reservar.
+- **Búsqueda:** barra en la parte superior de ambas pantallas; filtra por amenidad, estado, residente, inmueble o fecha (`AAAA-MM-DD`), sin distinguir mayúsculas ni tildes.
+- **Formato de hora:** interruptor *a. m./p. m. – 24 h* en la barra superior; aplica a listados, agenda, franjas, horarios de las amenidades, reporte de ocupación y al reloj del selector de hora.
 
 ---
 
@@ -79,7 +86,8 @@ El Módulo 3 gestiona el ciclo completo de uso de las zonas comunes (amenidades)
 | `amenidades/{id}/` | `GET`, `PATCH`, `DELETE` | Autenticado / `amenidades.gestionar` | Consulta, actualiza o elimina (o desactiva si tiene historial) una amenidad |
 | `amenidades/{id}/activar/` | `POST` | `amenidades.gestionar` | Reactiva una amenidad registrando trazabilidad |
 | `amenidades/{id}/desactivar/` | `POST` | `amenidades.gestionar` | Desactiva una amenidad registrando el cambio de estado |
-| `amenidades/{id}/disponibilidad/?fecha=YYYY-MM-DD` | `GET` | Autenticado | Horarios del día, franjas ocupadas y ventanas libres calculadas |
+| `amenidades/{id}/disponibilidad/?fecha=YYYY-MM-DD` | `GET` | Autenticado | Horarios del día, franjas ocupadas, ventanas libres calculadas y `reservable_desde` |
+| `amenidades/{id}/verificar/?inicio=…&fin=…&num_personas=…` | `GET` | Autenticado | Indica si el horario se puede reservar (`disponible`) y, si no, los `motivos` |
 | `reservas/` | `GET`, `POST` | `reservas.solicitar` / `amenidades.gestionar` | Lista reservas (propias para residente, todas para admin) o crea una nueva solicitud |
 | `reservas/{id}/confirmar/` | `POST` | `amenidades.gestionar` | Aprueba una reserva en estado `SOLICITADA` |
 | `reservas/{id}/rechazar/` | `POST` | `amenidades.gestionar` | Rechaza una reserva en estado `SOLICITADA` registrando el motivo |
