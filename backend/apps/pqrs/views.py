@@ -157,9 +157,8 @@ class PQRListCreateView(generics.ListCreateAPIView):
         pqr = serializer.save()
         return Response(PQRDetalleSerializer(pqr).data, status=status.HTTP_201_CREATED)
 
-class PQRRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
-    """Permite consultar, editar y eliminar una PQR según sus permisos."""
-
+class PQRRetrieveUpdateView(generics.RetrieveUpdateAPIView):
+    """Permite consultar y editar una PQR según sus permisos."""
     permission_classes = [permissions.IsAuthenticated, PuedeRadicarPQR]
 
     def get_serializer_class(self):
@@ -176,18 +175,23 @@ class PQRRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
         """Restringe y registra ediciones sin duplicar los eventos del trigger."""
         pqr = serializer.instance
         
-        # Regla de bloqueo: si está CERRADA, rechaza modificaciones con 400 Bad Request
-        if pqr.estado.codigo == "CERRADA":
+        # Regla de bloqueo: una PQR cerrada o anulada es de solo lectura (400).
+        if pqr.estado.codigo in {"CERRADA", "ANULADA"}:
             raise exceptions.ValidationError(
-                {"detail": "Esta solicitud se encuentra cerrada y no admite modificaciones."}
+                {"detail": "Esta solicitud está cerrada o anulada y no admite modificaciones."}
             )
 
         # Regla de negocio: un residente solo puede editar si sigue en estado RECIBIDA
         if not self.request.user.tiene_permiso("pqr.gestionar") and pqr.estado.codigo != "RECIBIDA":
             raise exceptions.PermissionDenied("Solo puedes editar una PQR mientras esté en estado 'Recibida'.")
 
+        datos = dict(serializer.validated_data)
+        if not self.request.user.tiene_permiso("pqr.gestionar"):
+            # La prioridad se ignora al guardar; tampoco debe figurar como modificada.
+            datos.pop("prioridad", None)
+
         campos_modificados = []
-        for campo, valor_nuevo in serializer.validated_data.items():
+        for campo, valor_nuevo in datos.items():
             if hasattr(valor_nuevo, "pk"):
                 valor_actual = getattr(pqr, f"{campo}_id")
                 valor_nuevo = valor_nuevo.pk
@@ -205,12 +209,6 @@ class PQRRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
                     "PQR editada; campos modificados: "
                     + ", ".join(sorted(campos_modificados)),
                 )
-
-    def destroy(self, request, *args, **kwargs):
-        """Elimina el borrado físico (Hard Delete): las solicitudes nunca se borran."""
-        raise exceptions.PermissionDenied(
-            "El borrado físico de solicitudes no está permitido en el sistema."
-        )
 
 class PQRHistorialListView(generics.ListAPIView):
     """Devuelve el historial cronológico de una PQR accesible al usuario."""
