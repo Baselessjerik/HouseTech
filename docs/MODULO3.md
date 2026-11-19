@@ -83,19 +83,19 @@ El Módulo 3 gestiona el ciclo completo de uso de las zonas comunes (amenidades)
 |---|---|---|---|
 | `amenidades/` | `GET` | Autenticado | Lista amenidades con sus reglas y horarios (`?activa=true`) |
 | `amenidades/` | `POST` | `amenidades.gestionar` | Crea una amenidad junto con sus reglas y horarios semanales |
-| `amenidades/{id}/` | `GET`, `PATCH`, `DELETE` | Autenticado / `amenidades.gestionar` | Consulta, actualiza o elimina (o desactiva si tiene historial) una amenidad |
+| `amenidades/{id}/` | `GET`, `PATCH` | Autenticado / `amenidades.gestionar` | Consulta o actualiza una amenidad (no hay `DELETE` físico; se desactiva con `/desactivar/`) |
 | `amenidades/{id}/activar/` | `POST` | `amenidades.gestionar` | Reactiva una amenidad registrando trazabilidad |
 | `amenidades/{id}/desactivar/` | `POST` | `amenidades.gestionar` | Desactiva una amenidad registrando el cambio de estado |
-| `amenidades/{id}/disponibilidad/?fecha=YYYY-MM-DD` | `GET` | Autenticado | Horarios del día, franjas ocupadas, ventanas libres calculadas y `reservable_desde` |
-| `amenidades/{id}/verificar/?inicio=…&fin=…&num_personas=…` | `GET` | Autenticado | Indica si el horario se puede reservar (`disponible`) y, si no, los `motivos` |
-| `reservas/` | `GET`, `POST` | `reservas.solicitar` / `amenidades.gestionar` | Lista reservas (propias para residente, todas para admin) o crea una nueva solicitud |
-| `reservas/{id}/confirmar/` | `POST` | `amenidades.gestionar` | Aprueba una reserva en estado `SOLICITADA` |
-| `reservas/{id}/rechazar/` | `POST` | `amenidades.gestionar` | Rechaza una reserva en estado `SOLICITADA` registrando el motivo |
-| `reservas/{id}/cancelar/` | `POST` | `reservas.solicitar` / `amenidades.gestionar` | Cancela una reserva activa con motivo |
+| `amenidades/{id}/disponibilidad/?fecha=YYYY-MM-DD` | `GET` | `comunicados.ver` / `reservas.solicitar` / gestión | Horarios del día, franjas ocupadas, ventanas libres calculadas y `reservable_desde` |
+| `amenidades/{id}/verificar/?inicio=…&fin=…&num_personas=…` | `GET` | `reservas.solicitar` / gestión | Indica si el horario se puede reservar (`disponible`) y los `motivos`, validando propiedad del `inmueble` |
+| `reservas/` | `GET`, `POST` | `reservas.solicitar` / `amenidades.gestionar` | Lista reservas (propias para residente, todas para gestor) o crea solicitud (exige inmueble activo y selección explícita si el residente tiene varios inmuebles) |
+| `reservas/{id}/confirmar/` | `POST` | `amenidades.gestionar` | Aprueba una reserva en estado `SOLICITADA` (transacción con `select_for_update`) |
+| `reservas/{id}/rechazar/` | `POST` | `amenidades.gestionar` | Rechaza una reserva en estado `SOLICITADA` registrando el motivo (transacción con `select_for_update`) |
+| `reservas/{id}/cancelar/` | `POST` | `reservas.solicitar` / `amenidades.gestionar` | Cancela una reserva activa con motivo (transacción con `select_for_update`) |
 | `reservas/{id}/historial/` | `GET` | Autenticado (titular o gestor) | Historial de transiciones de estado de la reserva |
 | `reservas/procesar/` | `POST` | `amenidades.gestionar` | Ejecuta el motor de completado, expiración y recordatorios bajo demanda |
-| `agenda/` | `GET` | Autenticado | Agenda unificada de reservas y bloqueos en un rango de fechas |
-| `reportes/ocupacion/` y `reportes/reservas/` | `GET` | `reportes.ver` / `amenidades.gestionar` | Estadísticas de ocupación, horas reservadas e histórico consolidado |
+| `agenda/` | `GET` | `reservas.solicitar` / `amenidades.gestionar` | Agenda unificada de reservas y bloqueos (nunca filtra estados privados ajenos como `RECHAZADA` o `CANCELADA`) |
+| `reportes/ocupacion/` y `reportes/reservas/` | `GET` | `reportes.ver` | Estadísticas de ocupación (agrupación sobre tramo recortado) e histórico exportable a CSV con neutralización anti-inyección de fórmulas |
 
 ---
 

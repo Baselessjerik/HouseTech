@@ -227,12 +227,12 @@ El Módulo 1 (documentado a detalle en [docs/MODULO1.md](./docs/MODULO1.md)) ges
 |---|---|---|---|
 | `auth/login/`, `refresh/`, `logout/`, `registro/` | `POST` | Público / Autenticado | Autenticación JWT, revocación de sesión y autorregistro de residentes |
 | `auth/me/` y `auth/cambiar-password/` | `GET`, `PATCH`, `POST` | Autenticado | Consulta de perfil, edición de contacto, foto de perfil (base64) y cambio de clave |
-| `auth/recuperar-password/*` | `POST` | Público | Flujo de recuperación de contraseña con código de 6 dígitos |
-| `usuarios/` | `GET`, `POST`, `PATCH`, `POST {id}/activar\|desactivar/`, `PUT {id}/roles/` | `usuarios.gestionar` / `roles.gestionar` | Administración de cuentas de usuario, estado y asignación de roles |
+| `auth/recuperar/`, `validar-codigo/`, `restablecer/` | `POST` | Público | Flujo de recuperación de contraseña con código de 6 dígitos (invalidación lógica sin borrado físico) |
+| `usuarios/` | `GET`, `POST`, `PATCH`, `POST {id}/activar\|desactivar/`, `PUT {id}/roles/` | `usuarios.gestionar` (`GET` también `inmuebles.gestionar`) / `roles.gestionar` | Administración de cuentas de usuario, estado y asignación de roles (protege al último `ADMIN` activo) |
 | `roles/` y `permisos/` | `GET`, `PUT roles/{id}/permisos/` | `roles.gestionar` | Consulta y configuración de la matriz de permisos por rol |
 | `inmuebles/` | `GET`, `POST`, `PATCH`, `POST {id}/activar\|desactivar\|vincular\|desvincular/` | `inmuebles.consultar` / `inmuebles.gestionar` | Gestión de casas/apartamentos y vinculación de residentes o propietarios |
 | `copropiedades/` | `GET`, `POST`, `PATCH` | Autenticado / `configuracion.gestionar` | Parametrización y registro de conjuntos residenciales |
-| `auditoria/` | `GET` | `auditoria.ver` | Bitácora de auditoría con filtros por fecha, actor, acción y entidad |
+| `auditoria/` | `GET` (`?fecha=YYYY-MM-DD`, `?tabla=`, `?operacion=`, `?search=`) | `auditoria.ver` | Bitácora de auditoría con filtros por fecha en zona horaria local, actor, acción y entidad |
 
 ## Módulo 2: Comunicados, Mantenimientos y Bloqueos
 
@@ -244,8 +244,8 @@ El Módulo 2 (documentado a detalle en [docs/MODULO2.md](./docs/MODULO2.md)) inc
 |---|---|---|---|
 | `mantenimientos/` | `GET`, `POST`, `PATCH`, `POST {id}/iniciar\|finalizar\|cancelar/` | `bloqueos.gestionar` | Programación y ciclo de vida de mantenimientos de zonas comunes |
 | `bloqueos/` | `GET`, `POST`, `PATCH`, `POST {id}/cancelar/` | `bloqueos.gestionar` | Bloqueos temporales de amenidades con detección de cruces (`409`) y reservas en conflicto |
-| `amenidades/disponibilidad/` | `GET` (`?momento=`) | Autenticado | Consulta en tiempo real del estado de cada amenidad (`DISPONIBLE`, `RESERVADA`, `BLOQUEADA`, `EN_MANTENIMIENTO`) |
-| `categorias-comunicado/` | `GET` / `POST`, `PATCH`, `DELETE` | `comunicados.ver` / `comunicados.gestionar` | Clasificación de avisos con etiquetas de color |
+| `amenidades/disponibilidad/` | `GET` (`?momento=`) | `comunicados.ver` / `reservas.solicitar` / gestión | Consulta en tiempo real del estado de cada amenidad (`DISPONIBLE`, `RESERVADA`, `BLOQUEADA`, `EN_MANTENIMIENTO`) |
+| `categorias-comunicado/` | `GET` / `POST`, `PATCH`, `DELETE` *(desactiva)* | `comunicados.ver` / `comunicados.gestionar` | Clasificación de avisos con etiquetas de color (`DELETE` desactiva lógicamente sin perder historial) |
 | `comunicados/` | `GET`, `POST`, `PATCH`, `POST {id}/publicar\|programar\|archivar/`, `GET {id}/historial/` | `comunicados.gestionar` | Gestión administrativa de comunicados, programación, archivo y trazabilidad de versiones |
 | `avisos/` | `GET` | `comunicados.ver` | Consulta de avisos publicados, vigentes y segmentados según la audiencia del usuario (`TODOS`, `ROL`, `USUARIOS`) |
 | `notificaciones/` | `GET`, `POST {id}/leer/`, `POST leer-todas/`, `GET no-leidas/conteo/` | Autenticado | Bandeja de notificaciones de comunicados, mantenimientos, bloqueos y reservas afectadas |
@@ -259,15 +259,15 @@ El Módulo 3 (documentado a detalle en [docs/MODULO3.md](./docs/MODULO3.md)) inc
 
 | Recurso | Métodos | Permiso requerido | Descripción |
 |---|---|---|---|
-| `amenidades/` | `GET`, `POST`, `PATCH`, `DELETE` | Autenticado / `amenidades.gestionar` | Catálogo de zonas comunes, reglas operativas (`ReglaReserva`) y horarios por día (`AmenidadHorario`) |
-| `amenidades/{id}/activar\|desactivar/` | `POST` | `amenidades.gestionar` | Activación y desactivación de amenidades con registro en `amenidades_estado_historial` |
-| `amenidades/{id}/disponibilidad/?fecha=` | `GET` | Autenticado | Horarios del día, franjas ocupadas y ventanas libres calculadas |
-| `reservas/` | `GET`, `POST` | `reservas.solicitar` / `amenidades.gestionar` | Solicitud de reservas con validación de capacidad, horario, reglas y cruces, y consulta filtrable |
-| `reservas/{id}/confirmar\|rechazar\|cancelar/` | `POST` | `amenidades.gestionar` / `reservas.solicitar` | Transiciones de estado (`SOLICITADA` → `CONFIRMADA` / `RECHAZADA`, `CANCELADA`) con notificación automática |
+| `amenidades/` | `GET`, `POST`, `PATCH` | `reservas.solicitar` / `amenidades.gestionar` | Catálogo de zonas comunes, reglas operativas (`ReglaReserva`) y horarios por día (`AmenidadHorario`). No hay borrado físico. |
+| `amenidades/{id}/activar\|desactivar/` | `POST` | `amenidades.gestionar` | Activación y desactivación lógica de amenidades con registro en `amenidades_estado_historial` |
+| `amenidades/{id}/disponibilidad/?fecha=` | `GET` | `comunicados.ver` / `reservas.solicitar` / gestión | Horarios del día, franjas ocupadas y ventanas libres calculadas |
+| `reservas/` | `GET`, `POST` | `reservas.solicitar` / `amenidades.gestionar` | Solicitud de reservas con validación de inmueble activo, cupo mensual, capacidad, horario, reglas y cruces |
+| `reservas/{id}/confirmar\|rechazar\|cancelar/` | `POST` | `amenidades.gestionar` / `reservas.solicitar` | Transiciones de estado atómicas (`select_for_update`) con notificación automática |
 | `reservas/{id}/historial/` | `GET` | Autenticado (titular o gestor) | Trazabilidad de cambios de estado generada por `trg_reservas_historial` |
 | `reservas/procesar/` | `POST` | `amenidades.gestionar` | Procesamiento bajo demanda de reservas vencidas/expiradas y recordatorios |
-| `agenda/` | `GET` | Autenticado | Agenda general de reservas activas y bloqueos |
-| `reportes/ocupacion/` y `reportes/reservas/` | `GET` | `reportes.ver` / `amenidades.gestionar` | Indicadores de ocupación, horas reservadas e histórico consolidado |
+| `agenda/` | `GET` | `reservas.solicitar` / `amenidades.gestionar` | Agenda general de reservas activas y bloqueos (preserva privacidad de estados ajenos) |
+| `reportes/ocupacion/` y `reportes/reservas/` | `GET` | `reportes.ver` | Indicadores de ocupación, horas reservadas e histórico exportable a CSV (con protección anti-inyección de fórmulas) |
 
 ## Módulo PQR (Peticiones, Quejas y Reclamos)
 
@@ -275,7 +275,7 @@ El módulo (documentado a detalle en [docs/MODULO_PQRS.md](./docs/MODULO_PQRS.md
 
 ### Roles, permisos y visibilidad
 
-Todos los endpoints requieren autenticación y el permiso `pqr.radicar`. La asignación de responsable exige además el permiso de administración `usuarios.gestionar`. Una PQR que el usuario no puede ver responde `404`.
+Todos los endpoints requieren autenticación y el permiso `pqr.radicar`. La asignación de responsable exige además el permiso `usuarios.gestionar`. La visibilidad se evalúa por **permisos efectivos** (compatible con roles personalizados). Una PQR que el usuario no puede ver responde `404`, y una PQR en estado `CERRADA` o `ANULADA` es estrictamente de solo lectura (bloquea edición, respuestas, reasignación y cambios en adjuntos).
 
 | Rol | Permisos de PQR (según `schema.sql`) | PQR que puede consultar |
 |---|---|---|
@@ -715,15 +715,23 @@ El frontend guarda los tokens JWT con `flutter_secure_storage`. Para Android
 emulado debe usarse `10.0.2.2:8000` en lugar de `127.0.0.1:8000`; en un
 dispositivo físico debe configurarse la IP local del equipo que ejecuta Docker.
 
-Las pruebas automatizadas del frontend están en:
-- [frontend/test/auth_screen_test.dart](./frontend/test/auth_screen_test.dart)
-- [frontend/test/user_model_test.dart](./frontend/test/user_model_test.dart)
-- [frontend/test/app_shell_test.dart](./frontend/test/app_shell_test.dart)
-- [frontend/test/comunicados_test.dart](./frontend/test/comunicados_test.dart)
-- [frontend/test/reservas_test.dart](./frontend/test/reservas_test.dart)
-- [frontend/test/pqr_model_test.dart](./frontend/test/pqr_model_test.dart)
-- [frontend/test/pqr_form_test.dart](./frontend/test/pqr_form_test.dart)
-- [frontend/test/pqr_adjuntos_dialog_test.dart](./frontend/test/pqr_adjuntos_dialog_test.dart)
+Las pruebas automatizadas actuales cubren **293 tests en backend (`pytest`)** y **52 tests en frontend (`flutter test`)**, incluyendo suites de regresión de seguridad, integridad histórica (desactivación lógica sin borrado físico) y lógica de negocio:
+
+- Backend:
+  - `backend/apps/usuarios/tests/test_inmuebles_y_modulo1.py`
+  - `backend/apps/comunicados/tests/test_paquete_b.py`
+  - `backend/apps/reservas/tests/test_paquete_b.py`
+  - `backend/apps/pqrs/tests/test_paquete_b.py`
+- Frontend:
+  - [frontend/test/auth_screen_test.dart](./frontend/test/auth_screen_test.dart)
+  - [frontend/test/user_model_test.dart](./frontend/test/user_model_test.dart)
+  - [frontend/test/app_shell_test.dart](./frontend/test/app_shell_test.dart)
+  - [frontend/test/comunicados_test.dart](./frontend/test/comunicados_test.dart)
+  - [frontend/test/reservas_test.dart](./frontend/test/reservas_test.dart)
+  - [frontend/test/pqr_model_test.dart](./frontend/test/pqr_model_test.dart)
+  - [frontend/test/pqr_form_test.dart](./frontend/test/pqr_form_test.dart)
+  - [frontend/test/pqr_adjuntos_dialog_test.dart](./frontend/test/pqr_adjuntos_dialog_test.dart)
+  - [frontend/test/pqr_detail_modal_test.dart](./frontend/test/pqr_detail_modal_test.dart)
 
 ## Ramas del proyecto
 

@@ -4,9 +4,7 @@ Módulo autocontenido: usa el esquema de `commands.sql` (idéntico a `schema.sql
 No crea permisos nuevos. **Única tabla nueva:** `comunicado_adjuntos` (archivos adjuntos), creada por la migración
 `comunicados/0002_adjuntos` (ver sección 8).
 
-> **Estado de verificación:** el código se escribió leyendo el repositorio del Módulo 1 y el SQL, pero **no se ejecutó**
-> (el entorno donde se generó no tiene Django, PostgreSQL ni Flutter). Corre los comandos de la sección 3 y
-> envíame cualquier error: se corrige rápido.
+> **Estado de verificación:** integrado y verificado en Docker con PostgreSQL, `pytest apps/comunicados` y `flutter test test/comunicados_test.dart`.
 
 ## 1. Qué contiene
 
@@ -74,18 +72,20 @@ Opcional: `COMUNICADOS_NOTIFICAR_EMAIL=true` envía también correo (usa el `EMA
 |---|---|---|---|
 | `mantenimientos/` | GET, POST, PATCH · `POST {id}/iniciar|finalizar|cancelar/` | `bloqueos.gestionar` | 1, 8 |
 | `bloqueos/` | GET, POST, PATCH · `POST {id}/cancelar/` | `bloqueos.gestionar` | 2–5, 7, 8 |
-| `amenidades/disponibilidad/?momento=` · `amenidades/{id}/disponibilidad/` | GET | autenticado | 6 |
-| `categorias-comunicado/` | GET (activas) / POST, PATCH, DELETE | `comunicados.ver` / `comunicados.gestionar` | 12 |
+| `amenidades/disponibilidad/?momento=` · `amenidades/{id}/disponibilidad/` | GET | `comunicados.ver` / `reservas.solicitar` / gestión | 6 |
+| `categorias-comunicado/` | GET (activas) / POST, PATCH, DELETE *(desactiva)* | `comunicados.ver` / `comunicados.gestionar` | 12 |
 | `comunicados/` | GET, POST, PATCH · `POST {id}/publicar|programar|archivar/` · `GET {id}/historial/` | `comunicados.gestionar` | 9–13, 15 |
 | `avisos/` | GET (publicados, vigentes y visibles para el usuario) | `comunicados.ver` | 14 |
 | `notificaciones/` · `POST {id}/leer/` · `POST leer-todas/` · `GET no-leidas/conteo/` | | autenticado | 8, 16 |
 | `comunicados-opciones/roles/` · `comunicados-opciones/usuarios/?search=` | GET | `comunicados.gestionar` | formularios |
 
 Reglas clave:
-- Bloqueo y mantenimiento **no se borran**: se cancelan.
-- Crear/editar un bloqueo que cruce otro bloqueo activo → **409** `bloqueo_cruzado`.
-- Si hay reservas en ese horario → **409** `reservas_en_conflicto` con la lista; repetir con `?confirmar=true` crea el
-  bloqueo y notifica a los dueños (tipo `RESERVA`). Las reservas **no se cancelan** solas.
+- Bloqueo y mantenimiento **no se borran**: se cancelan. Tampoco se puede cancelar un bloqueo ya finalizado (`400`), ni cambiar la `amenidad` de un mantenimiento mientras tenga bloqueos activos (`400`).
+- **Categorías (`DELETE /categorias-comunicado/{id}/`)**: en lugar de borrado físico, se desactivan lógicamente (`activa = false`, HTTP `204`) para preservar la referencia histórica de los comunicados existentes.
+- Crear/editar un bloqueo que cruce otro bloqueo activo → **409** `bloqueo_cruzado` (incluso al usar `cancelar_reservas=true`, que además valida fechas pasadas y conserva el `mantenimiento` asociado).
+- Si hay reservas en ese horario → **409** `reservas_en_conflicto` con la lista; repetir con `?confirmar=true` crea el bloqueo y notifica a los dueños (tipo `RESERVA`). Las reservas **no se cancelan** solas salvo que se envíe `cancelar_reservas=true`.
+- La publicación perezosa de comunicados programados al consultar `GET /avisos/` se ejecuta en contexto de sistema (`app.usuario_id = ''`) para no atribuir la publicación al residente en historial ni auditoría.
+- El envío opcional de correos (`COMUNICADOS_NOTIFICAR_EMAIL=true`) se despacha con `transaction.on_commit()`.
 - RF5 (no reservar en un bloqueo) lo garantiza el trigger de la BD (`23P01` → 409).
 - Audiencia `TODOS` = usuarios activos con el permiso `comunicados.ver`.
 - Comunicados `ARCHIVADOS` no se editan; los `PUBLICADOS` sí (queda historial por trigger).

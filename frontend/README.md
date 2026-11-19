@@ -2,11 +2,12 @@
 
 Cliente Flutter de HouseTech conectado a la API Django del proyecto. Incluye el
 flujo completo de autenticación, navegación principal por permisos (`AppShell`),
-las pantallas del Módulo 2 (Comunicados, Avisos, Notificaciones, Disponibilidad,
-Mantenimientos y Bloqueos), las pantallas del Módulo 3 (Solicitud de reservas,
-Disponibilidad diaria por fecha y Administración de amenidades, reglas, horarios
-y ocupación) y el Módulo PQR (radicación, gestión de estados y evidencias
-adjuntas).
+el Módulo 1 (Mi perfil, Administración de usuarios, Roles y permisos RBAC,
+Inmuebles, Parametrización de copropiedades, Auditoría y Reportes), el Módulo 2
+(Comunicados, Avisos, Notificaciones, Disponibilidad, Mantenimientos y
+Bloqueos), el Módulo 3 (Solicitud de reservas, Disponibilidad diaria por fecha y
+Administración de amenidades, reglas, horarios y ocupación) y el Módulo PQR
+(radicación, gestión de estados, respuestas y evidencias adjuntas).
 
 ## Requisitos
 
@@ -165,12 +166,30 @@ usuario:
 
 - **Mis PQRs (`pqr.radicar` sin `pqr.gestionar`):** abre `PqrsTableScreen` para
   que el residente radique nuevas solicitudes (`PqrFormScreen`), adjunte o
-  descargue archivos de evidencia (`PqrAdjuntosDialog`) y edite o elimine sus
-  propias solicitudes mientras permanezcan en estado `RECIBIDA`.
+  descargue archivos de evidencia (`PqrAdjuntosDialog`), consulte respuestas e
+  historial (`PqrDetailModal`), edite en `RECIBIDA` o anule con motivo en las
+  etapas iniciales.
 - **Gestionar PQR (`pqr.gestionar`):** abre `PqrsTableScreen` con
-  `puedeGestionarEstados: true` para consultar todas las solicitudes de la
-  copropiedad, gestionar su transición de estados (`RECIBIDA` → `EN_REVISION` →
-  `EN_PROCESO` → `ATENDIDA` → `CERRADA`) y administrar evidencias.
+  `puedeGestionarEstados: true` para consultar las solicitudes autorizadas
+  (todas para administración; asignadas y propias para responsable), gestionar
+  su transición de estados (`RECIBIDA` → `EN_REVISION` → `EN_PROCESO` →
+  `ATENDIDA` → `CERRADA` / `ANULADA`), responder y administrar evidencias.
+
+## Módulo 1: Administración, Perfil, Inmuebles y Auditoría
+
+Integrado en [AppShell](./lib/shell/app_shell.dart) desde
+`lib/features/administracion/`:
+
+- **Mi perfil:** visualización de datos fijos, edición de contacto, foto de
+  perfil (caché acotada en `UserModel`) y cambio de contraseña.
+- **Usuarios, Roles y Permisos (`usuarios.gestionar`, `roles.gestionar`):**
+  listado paginado, creación/edición, activación/desactivación lógica y matriz
+  RBAC por rol (usando `ApiClient.put` con refresco automático de JWT).
+- **Inmuebles (`inmuebles.consultar` / `inmuebles.gestionar`):** menú unificado
+  sin duplicados para administradores, registro/edición de unidades,
+  desactivación lógica y vínculos con residentes.
+- **Parametrización, Auditoría y Reportes:** gestión de copropiedades, bitácora
+  paginada con filtros por fecha/entidad/acción y panel gráfico de ocupación.
 
 ## Estructura relevante
 
@@ -182,21 +201,22 @@ frontend/
 │   │   ├── app_colors.dart       # Paleta institucional HouseTech
 │   │   └── app_theme.dart        # Tema Material 3
 │   ├── models/
-│   │   ├── user_model.dart       # Modelo de usuario, roles y permisos
+│   │   ├── user_model.dart       # Modelo de usuario, roles, permisos y caché de foto
 │   │   └── pqr_model.dart        # Modelos de tipos, solicitudes y adjuntos PQR
 │   ├── providers/
 │   │   └── auth_provider.dart    # Estado de sesión en Riverpod
 │   ├── services/
-│   │   ├── auth_service.dart     # Peticiones y renovación automática de JWT
+│   │   ├── auth_service.dart     # Peticiones UTF-8, logout offline-safe y refresco JWT
 │   │   ├── pqr_service.dart      # Peticiones HTTP para el módulo PQR
 │   │   └── pqr_file_saver*.dart  # Descarga de adjuntos en web y nativo
 │   ├── shell/
 │   │   └── app_shell.dart        # Navegación responsive basada en permisos
 │   ├── features/
 │   │   ├── auth/                 # Login, registro y recuperación de contraseña
+│   │   ├── administracion/       # Pantallas y servicios del Módulo 1
 │   │   ├── comunicados/          # Pantallas, modelos, providers y servicios del Módulo 2
 │   │   ├── reservas/             # Pantallas, modelos y servicios del Módulo 3 (Amenidades y Reservas)
-│   │   └── pqrs/                 # Tabla, formulario y gestión de adjuntos de PQR
+│   │   └── pqrs/                 # Tabla, formulario, detalle y gestión de adjuntos de PQR
 │   └── main.dart
 ├── test/
 │   ├── auth_screen_test.dart         # Pruebas de autenticación y recuperación
@@ -206,7 +226,8 @@ frontend/
 │   ├── reservas_test.dart            # Pruebas de modelos y pantallas del Módulo 3
 │   ├── pqr_model_test.dart           # Pruebas unitarias de modelos PQR
 │   ├── pqr_form_test.dart            # Pruebas de validación y radicación PQR
-│   └── pqr_adjuntos_dialog_test.dart # Pruebas de carga, descarga y gestión de adjuntos
+│   ├── pqr_adjuntos_dialog_test.dart # Pruebas de carga, descarga y gestión de adjuntos
+│   └── pqr_detail_modal_test.dart    # Pruebas de detalle, respuestas e historial PQR
 └── pubspec.yaml
 ```
 
