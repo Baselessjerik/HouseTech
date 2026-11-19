@@ -14,6 +14,10 @@ class _AuditoriaPageState extends State<AuditoriaPage> {
   final TextEditingController _searchCtrl = TextEditingController();
 
   List<Map<String, dynamic>> _registros = [];
+  int _totalRegistros = 0;
+  int _pagina = 1;
+  bool _tieneSiguiente = false;
+  bool _tieneAnterior = false;
   bool _loading = true;
   String? _error;
   String? _filtroOperacion;
@@ -26,11 +30,14 @@ class _AuditoriaPageState extends State<AuditoriaPage> {
     'roles': 'Rol',
     'roles_permisos': 'RolPermiso',
     'inmuebles': 'Inmueble',
-    'inmuebles_usuarios': 'VínculoInmueble',
-    'copropiedades': 'Conjunto',
+    'inmueble_usuario': 'VínculoInmueble',
+    'copropiedad': 'Conjunto',
     'reservas': 'Reserva',
     'amenidades': 'Amenidad',
+    'amenidad_horarios': 'HorarioAmenidad',
+    'reglas_reserva': 'ReglaReserva',
     'pqr': 'PQR',
+    'pqr_respuestas': 'RespuestaPQR',
     'comunicados': 'Comunicado',
     'mantenimientos': 'Mantenimiento',
     'bloqueos_amenidad': 'Bloqueo',
@@ -48,25 +55,39 @@ class _AuditoriaPageState extends State<AuditoriaPage> {
     super.dispose();
   }
 
-  Future<void> _cargar() async {
+  Future<void> _cargar({bool reiniciarPagina = false}) async {
+    if (reiniciarPagina) _pagina = 1;
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final data = await _service.listarAuditoria(
+      final fechaParam = _filtroFecha == null
+          ? null
+          : '${_filtroFecha!.year.toString().padLeft(4, '0')}-${_filtroFecha!.month.toString().padLeft(2, '0')}-${_filtroFecha!.day.toString().padLeft(2, '0')}';
+      final res = await _service.listarAuditoriaPaginada(
         search: _searchCtrl.text.trim(),
         operacion: _filtroOperacion,
         tabla: _filtroTabla,
+        fecha: fechaParam,
+        page: _pagina,
       );
       if (mounted) {
         setState(() {
-          _registros = data;
+          _registros = res.items;
+          _totalRegistros = res.total;
+          _tieneSiguiente = res.tieneSiguiente;
+          _tieneAnterior = res.tieneAnterior;
           _loading = false;
         });
       }
     } catch (e) {
       if (mounted) {
+        if (_pagina > 1 && !reiniciarPagina) {
+          _pagina = 1;
+          await _cargar(reiniciarPagina: true);
+          return;
+        }
         setState(() {
           _error = e.toString().replaceFirst('Exception: ', '');
           _loading = false;
@@ -75,20 +96,12 @@ class _AuditoriaPageState extends State<AuditoriaPage> {
     }
   }
 
-  List<Map<String, dynamic>> get _registrosFiltrados {
-    if (_filtroFecha == null) return _registros;
-    final prefijo =
-        '${_filtroFecha!.year.toString().padLeft(4, '0')}-${_filtroFecha!.month.toString().padLeft(2, '0')}-${_filtroFecha!.day.toString().padLeft(2, '0')}';
-    return _registros.where((r) {
-      final fechaStr = (r['fecha'] ?? '').toString();
-      return fechaStr.startsWith(prefijo);
-    }).toList();
-  }
+  List<Map<String, dynamic>> get _registrosFiltrados => _registros;
 
-  String _formatearFechaUtc(dynamic raw) {
+  String _formatearFechaLocal(dynamic raw) {
     if (raw == null) return '-';
     final str = raw.toString();
-    final dt = DateTime.tryParse(str)?.toUtc();
+    final dt = DateTime.tryParse(str)?.toLocal();
     if (dt == null) return str;
     final y = dt.year.toString().padLeft(4, '0');
     final m = dt.month.toString().padLeft(2, '0');
@@ -268,6 +281,7 @@ class _AuditoriaPageState extends State<AuditoriaPage> {
     );
     if (picked != null) {
       setState(() => _filtroFecha = picked);
+      _cargar(reiniciarPagina: true);
     }
   }
 
@@ -327,7 +341,8 @@ class _AuditoriaPageState extends State<AuditoriaPage> {
                 width: 260,
                 child: TextField(
                   controller: _searchCtrl,
-                  onSubmitted: (_) => _cargar(),
+                  onChanged: (_) => setState(() {}),
+                  onSubmitted: (_) => _cargar(reiniciarPagina: true),
                   decoration: InputDecoration(
                     hintText: 'Filtrar por usuario o ID...',
                     prefixIcon: const Icon(Icons.person_search_rounded, size: 18),
@@ -361,7 +376,7 @@ class _AuditoriaPageState extends State<AuditoriaPage> {
                     ],
                     onChanged: (v) {
                       setState(() => _filtroOperacion = v);
-                      _cargar();
+                      _cargar(reiniciarPagina: true);
                     },
                   ),
                 ),
@@ -391,7 +406,7 @@ class _AuditoriaPageState extends State<AuditoriaPage> {
                     ],
                     onChanged: (v) {
                       setState(() => _filtroTabla = v);
-                      _cargar();
+                      _cargar(reiniciarPagina: true);
                     },
                   ),
                 ),
@@ -418,13 +433,13 @@ class _AuditoriaPageState extends State<AuditoriaPage> {
                       _filtroTabla = null;
                       _filtroFecha = null;
                     });
-                    _cargar();
+                    _cargar(reiniciarPagina: true);
                   },
                   icon: const Icon(Icons.filter_alt_off_rounded, size: 16),
                   label: const Text('Limpiar filtros'),
                 ),
               FilledButton.icon(
-                onPressed: _cargar,
+                onPressed: () => _cargar(reiniciarPagina: true),
                 icon: const Icon(Icons.search_rounded, size: 16),
                 label: const Text('Buscar'),
               ),
@@ -446,7 +461,18 @@ class _AuditoriaPageState extends State<AuditoriaPage> {
               color: Colors.red.shade50,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Text(_error!, style: TextStyle(color: Colors.red.shade800)),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(_error!,
+                      style: TextStyle(color: Colors.red.shade800)),
+                ),
+                TextButton(
+                  onPressed: () => _cargar(reiniciarPagina: true),
+                  child: const Text('Reintentar'),
+                ),
+              ],
+            ),
           )
         else if (filas.isEmpty)
           Container(
@@ -494,7 +520,7 @@ class _AuditoriaPageState extends State<AuditoriaPage> {
                     columns: const [
                       DataColumn(
                         label: Text(
-                          'Fecha y Hora (UTC)',
+                          'Fecha y Hora (Local)',
                           style: TextStyle(
                             color: Color(0xFFE2E8F0),
                             fontWeight: FontWeight.w700,
@@ -563,7 +589,8 @@ class _AuditoriaPageState extends State<AuditoriaPage> {
                       return DataRow(
                         cells: [
                           DataCell(
-                            _DarkCodeBadge(text: _formatearFechaUtc(r['fecha'])),
+                            _DarkCodeBadge(
+                                text: _formatearFechaLocal(r['fecha'])),
                           ),
                           DataCell(
                             _DarkCodeBadge(text: actor),
@@ -618,6 +645,43 @@ class _AuditoriaPageState extends State<AuditoriaPage> {
               ),
             ),
           ),
+        if (!_loading && _error == null && _totalRegistros > 0) ...[
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Mostrando ${filas.length} de $_totalRegistros eventos · Página $_pagina',
+                style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+              ),
+              Row(
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: _tieneAnterior
+                        ? () {
+                            setState(() => _pagina--);
+                            _cargar();
+                          }
+                        : null,
+                    icon: const Icon(Icons.chevron_left_rounded, size: 18),
+                    label: const Text('Anterior'),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    onPressed: _tieneSiguiente
+                        ? () {
+                            setState(() => _pagina++);
+                            _cargar();
+                          }
+                        : null,
+                    icon: const Icon(Icons.chevron_right_rounded, size: 18),
+                    label: const Text('Siguiente'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }

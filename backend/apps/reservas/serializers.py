@@ -76,9 +76,14 @@ class AmenidadSerializer(serializers.ModelSerializer):
 
     def validate_nombre(self, valor):
         valor = valor.strip()
-        copropiedad_id = (self.initial_data.get("copropiedad") if hasattr(self, "initial_data") else None) or (
-            self.instance.copropiedad_id if self.instance else None
-        )
+        raw_cop = self.initial_data.get("copropiedad") if hasattr(self, "initial_data") else None
+        if raw_cop not in (None, ""):
+            try:
+                copropiedad_id = int(raw_cop)
+            except (TypeError, ValueError):
+                copropiedad_id = None
+        else:
+            copropiedad_id = self.instance.copropiedad_id if self.instance else None
         qs = Amenidad.objects.filter(nombre__iexact=valor)
         if copropiedad_id:
             qs = qs.filter(copropiedad_id=copropiedad_id)

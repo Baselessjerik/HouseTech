@@ -1,4 +1,4 @@
-from datetime import datetime, timezone as dt_timezone
+from datetime import date, datetime, time, timezone as dt_timezone
 
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
@@ -29,6 +29,7 @@ from .serializers import (
     InmuebleSerializer,
     LoginSerializer,
     LogoutSerializer,
+    PerfilPropioUpdateSerializer,
     PerfilUpdateSerializer,
     PermisoSerializer,
     RefreshSerializer,
@@ -46,6 +47,7 @@ from .services import asignar_permisos, asignar_roles, emitir_codigo_recuperacio
 from .throttles import RestablecerPasswordThrottle, SolicitarRecuperacionThrottle
 
 PuedeGestionarUsuarios = requiere_permiso("usuarios.gestionar")
+PuedeVerUsuariosParaGestion = requiere_algun_permiso("usuarios.gestionar", "inmuebles.gestionar")
 PuedeGestionarRoles = requiere_permiso("roles.gestionar")
 PuedeVerInmuebles = requiere_algun_permiso("inmuebles.consultar", "inmuebles.gestionar")
 PuedeGestionarInmuebles = requiere_permiso("inmuebles.gestionar")
@@ -102,12 +104,12 @@ class LogoutView(APIView):
 
 
 class MeView(generics.RetrieveUpdateAPIView):
-    """GET: perfil con roles y permisos. PATCH: edita nombres, apellidos, teléfono y correo."""
+    """GET: perfil con roles y permisos. PATCH: edita teléfono, correo y foto de perfil."""
 
     http_method_names = ["get", "patch", "head", "options"]
 
     def get_serializer_class(self):
-        return PerfilUpdateSerializer if self.request.method == "PATCH" else UsuarioPerfilSerializer
+        return PerfilPropioUpdateSerializer if self.request.method == "PATCH" else UsuarioPerfilSerializer
 
     def get_object(self):
         return self.request.user
@@ -195,7 +197,12 @@ class UsuarioViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
     ordering_fields = ["apellidos", "nombres", "username", "created_at", "last_login"]
 
     def get_permissions(self):
-        clase = PuedeGestionarRoles if self.action == "roles" else PuedeGestionarUsuarios
+        if self.action == "roles":
+            clase = PuedeGestionarRoles
+        elif self.action == "list":
+            clase = PuedeVerUsuariosParaGestion
+        else:
+            clase = PuedeGestionarUsuarios
         return [IsAuthenticated(), clase()]
 
     def get_serializer_class(self):
@@ -225,6 +232,12 @@ class UsuarioViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
         usuario = self.get_object()
         if not activo and usuario.pk == request.user.pk:
             raise ValidationError({"detail": "No puedes desactivar tu propia cuenta."})
+        if not activo and "ADMIN" in usuario.codigos_roles():
+            otros_admins = Usuario.objects.filter(
+                activo=True, usuario_roles__rol__codigo="ADMIN"
+            ).exclude(pk=usuario.pk).exists()
+            if not otros_admins:
+                raise ValidationError({"detail": "No puedes desactivar al único administrador activo."})
         usuario.activo = activo
         usuario.save(update_fields=["activo"])
         return Response(UsuarioPerfilSerializer(usuario).data)
@@ -298,10 +311,15 @@ class InmuebleViewSet(
         qs = Inmueble.objects.select_related("copropiedad").order_by("torre_bloque", "numero", "id")
         user = self.request.user
         solo_mios = self.request.query_params.get("mios") == "true"
-        if solo_mios or not user.tiene_permiso("inmuebles.gestionar"):
-            qs = qs.filter(vinculos__usuario=user, vinculos__fecha_fin__isnull=True).distinct()
+        es_gestor = user.tiene_permiso("inmuebles.gestionar")
+        if solo_mios or not es_gestor:
+            qs = qs.filter(
+                activo=True,
+                vinculos__usuario=user,
+                vinculos__fecha_fin__isnull=True,
+            ).distinct()
         activo = self.request.query_params.get("activo")
-        if activo in ("true", "false"):
+        if es_gestor and not solo_mios and activo in ("true", "false"):
             qs = qs.filter(activo=(activo == "true"))
         tipo = self.request.query_params.get("tipo")
         if tipo:
@@ -328,36 +346,61 @@ class InmuebleViewSet(
     @action(detail=True, methods=["post"])
     def vincular(self, request, pk=None):
         inmueble = self.get_object()
+        if not inmueble.activo:
+            raise ValidationError(
+                {"detail": "No puedes vincular usuarios a un inmueble inactivo. Actívalo primero."}
+            )
         serializer = VincularUsuarioInmuebleSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         usuario = serializer.validated_data["usuario_id"]
         tipo_relacion = serializer.validated_data["tipo_relacion"]
-        existente = InmuebleUsuario.objects.filter(
+
+        vinculos_usuario = InmuebleUsuario.objects.filter(
+            inmueble=inmueble,
+            usuario=usuario,
+            fecha_fin__isnull=True,
+        )
+        if vinculos_usuario.filter(tipo_relacion=tipo_relacion).exists():
+            raise ValidationError(
+                {"detail": f"Este usuario ya tiene un vínculo vigente como {tipo_relacion.lower()} en este inmueble."}
+            )
+        contradictoria = {
+            InmuebleUsuario.Relacion.PROPIETARIO: InmuebleUsuario.Relacion.ARRENDATARIO,
+            InmuebleUsuario.Relacion.ARRENDATARIO: InmuebleUsuario.Relacion.PROPIETARIO,
+        }.get(tipo_relacion)
+        if contradictoria and vinculos_usuario.filter(tipo_relacion=contradictoria).exists():
+            raise ValidationError(
+                {
+                    "tipo_relacion": (
+                        f"El usuario ya es {contradictoria.lower()} vigente de este inmueble; "
+                        f"finaliza ese vínculo antes de asignarlo como {tipo_relacion.lower()}."
+                    )
+                }
+            )
+
+        InmuebleUsuario.objects.create(
             inmueble=inmueble,
             usuario=usuario,
             tipo_relacion=tipo_relacion,
-            fecha_fin__isnull=True,
-        ).first()
-        if existente is None:
-            InmuebleUsuario.objects.create(
-                inmueble=inmueble,
-                usuario=usuario,
-                tipo_relacion=tipo_relacion,
-            )
+            fecha_inicio=timezone.localdate(),
+        )
         return Response(InmuebleSerializer(inmueble).data)
 
     @action(detail=True, methods=["post"])
     def desvincular(self, request, pk=None):
         inmueble = self.get_object()
-        vinculo_id = request.data.get("vinculo_id")
-        if not vinculo_id:
-            raise ValidationError({"vinculo_id": "Indica el vínculo que deseas finalizar."})
+        raw_id = request.data.get("vinculo_id")
+        try:
+            vinculo_id = int(raw_id)
+        except (TypeError, ValueError):
+            raise ValidationError({"vinculo_id": "Indica un identificador de vínculo válido."})
         vinculo = InmuebleUsuario.objects.filter(
             pk=vinculo_id, inmueble=inmueble, fecha_fin__isnull=True
         ).first()
         if vinculo is None:
             raise ValidationError({"vinculo_id": "Vínculo no encontrado o ya finalizado."})
-        vinculo.fecha_fin = timezone.localdate()
+        hoy = timezone.localdate()
+        vinculo.fecha_fin = hoy if hoy >= vinculo.fecha_inicio else vinculo.fecha_inicio
         vinculo.save(update_fields=["fecha_fin"])
         return Response(InmuebleSerializer(inmueble).data)
 
@@ -400,4 +443,14 @@ class AuditoriaViewSet(viewsets.ReadOnlyModelViewSet):
         operacion = self.request.query_params.get("operacion")
         if operacion:
             qs = qs.filter(operacion__iexact=operacion)
+        fecha_str = self.request.query_params.get("fecha")
+        if fecha_str:
+            try:
+                dia = date.fromisoformat(fecha_str.strip())
+                tz = timezone.get_current_timezone()
+                inicio = timezone.make_aware(datetime.combine(dia, time.min), tz)
+                fin = timezone.make_aware(datetime.combine(dia, time.max), tz)
+                qs = qs.filter(fecha__range=(inicio, fin))
+            except ValueError:
+                pass
         return qs

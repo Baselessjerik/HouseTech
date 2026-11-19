@@ -36,7 +36,11 @@ class _AuthScreenState extends State<AuthScreen> {
                   const SizedBox(height: 28),
                   Row(children: [_tabButton('Iniciar sesión', 0), _tabButton('Registrarse', 1)]),
                   const SizedBox(height: 24),
-                  _tab == 0 ? const LoginForm() : const RegisterForm(),
+                  _tab == 0
+                      ? const LoginForm()
+                      : RegisterForm(
+                          onRegistered: () => setState(() => _tab = 0),
+                        ),
                 ],
               ),
             ),

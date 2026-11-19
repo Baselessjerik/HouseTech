@@ -85,7 +85,7 @@ def reporte_ocupacion(f: dict) -> dict:
                 continue
             h = horas(*tramo)
             horas_res += h
-            clave = _clave_periodo(timezone.localtime(r.fecha_inicio).date(), f["agrupar"])
+            clave = _clave_periodo(timezone.localtime(tramo[0]).date(), f["agrupar"])
             serie[clave]["reservas"] += 1
             serie[clave]["horas_reservadas"] += h
             # reparte las horas por hora del día para detectar la hora pico
@@ -142,6 +142,13 @@ def reporte_ocupacion(f: dict) -> dict:
     }
 
 
+def _celda_csv(valor):
+    """Neutraliza prefijos de fórmula (=, +, -, @, tab, CR) para evitar inyección CSV en Excel."""
+    if isinstance(valor, str) and valor.startswith(("=", "+", "-", "@", "\t", "\r")):
+        return f"'{valor}"
+    return valor
+
+
 def ocupacion_a_csv(datos: dict) -> HttpResponse:
     respuesta = HttpResponse(content_type="text/csv; charset=utf-8")
     respuesta["Content-Disposition"] = 'attachment; filename="ocupacion_amenidades.csv"'
@@ -151,7 +158,7 @@ def ocupacion_a_csv(datos: dict) -> HttpResponse:
                        "Horas bloqueadas", "Reservas", "Canceladas", "Expiradas", "Tasa cancelación %", "Personas promedio",
                        "Uso de aforo %", "Hora pico"])
     for a in datos["amenidades"]:
-        escritor.writerow([a["amenidad"], a["capacidad"], a["horas_disponibles"], a["horas_reservadas"],
+        escritor.writerow([_celda_csv(a["amenidad"]), a["capacidad"], a["horas_disponibles"], a["horas_reservadas"],
                            a["ocupacion_pct"], a["horas_bloqueadas"], a["reservas"],
                            a["reservas_por_estado"]["CANCELADA"], a["reservas_por_estado"]["EXPIRADA"],
                            a["tasa_cancelacion_pct"],
@@ -168,8 +175,8 @@ def historico_a_csv(reservas) -> HttpResponse:
                        "Creada", "Confirmada", "Cancelada", "Motivo"])
     local = lambda v: timezone.localtime(v).strftime("%Y-%m-%d %H:%M") if v else ""  # noqa: E731
     for r in reservas.iterator():
-        escritor.writerow([r.pk, r.amenidad.nombre, r.usuario.nombre_completo,
-                           r.inmueble.codigo_interno if r.inmueble else "", local(r.fecha_inicio), local(r.fecha_fin),
-                           r.num_personas or "", r.estado.nombre, local(r.created_at), local(r.confirmada_en),
-                           local(r.cancelada_en), r.motivo_cancelacion or ""])
+        escritor.writerow([r.pk, _celda_csv(r.amenidad.nombre), _celda_csv(r.usuario.nombre_completo),
+                           _celda_csv(r.inmueble.codigo_interno if r.inmueble else ""), local(r.fecha_inicio), local(r.fecha_fin),
+                           r.num_personas or "", _celda_csv(r.estado.nombre), local(r.created_at), local(r.confirmada_en),
+                           local(r.cancelada_en), _celda_csv(r.motivo_cancelacion or "")])
     return respuesta

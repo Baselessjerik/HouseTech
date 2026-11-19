@@ -4,6 +4,7 @@ Las vistas solo validan entrada y llaman a estas funciones. Todas escriben dentr
 transacción de la petición (ATOMIC_REQUESTS) y, fuera de una petición (comandos), dentro
 de su propio `transaction.atomic()`.
 """
+from contextlib import contextmanager
 import mimetypes
 import os
 from datetime import timedelta
@@ -99,16 +100,37 @@ def crear_notificaciones(usuarios, *, tipo, titulo, mensaje, referencia_tipo=Non
     return len(ids)
 
 
+@contextmanager
+def _como_sistema():
+    """Deja las escrituras del bloque sin usuario en auditoría/historial (acción del sistema)
+    y restablece al usuario previo al salir."""
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT current_setting('app.usuario_id', true)")
+        previo = cursor.fetchone()[0] or ""
+        cursor.execute("SELECT set_config('app.usuario_id', '', true)")
+    try:
+        yield
+    finally:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT set_config('app.usuario_id', %s, true)", [previo])
+
+
 def _enviar_correos(ids, asunto, cuerpo):
-    """Correo opcional (COMUNICADOS_NOTIFICAR_EMAIL=true). Nunca rompe la operación."""
+    """Correo opcional (COMUNICADOS_NOTIFICAR_EMAIL=true) tras commit. Nunca rompe la operación."""
     if not _correos_habilitados() or not ids:
         return
     destinos = list(Usuario.objects.filter(pk__in=ids, activo=True).values_list("email", flat=True))
-    for correo in destinos:
-        try:
-            send_mail(asunto, cuerpo, None, [correo], fail_silently=True)
-        except Exception:  # noqa: BLE001
-            continue
+    if not destinos:
+        return
+
+    def _despachar():
+        for correo in destinos:
+            try:
+                send_mail(asunto, cuerpo, None, [correo], fail_silently=True)
+            except Exception:  # noqa: BLE001
+                continue
+
+    transaction.on_commit(_despachar)
 
 
 def _resumen(texto, largo=180):
@@ -178,7 +200,7 @@ def _validar_rango_nuevo(inicio, fin):
         raise ValidationError({"fecha_inicio": "La fecha de inicio no puede estar en el pasado."})
 
 
-def _notificar_reservas_afectadas(reservas, titulo, mensaje, referencia_id):
+def _notificar_reservas_afectadas(reservas, titulo, mensaje, referencia_id, *, referencia_tipo="bloqueo"):
     if not reservas:
         return
     crear_notificaciones(
@@ -186,7 +208,7 @@ def _notificar_reservas_afectadas(reservas, titulo, mensaje, referencia_id):
         tipo="RESERVA",
         titulo=titulo,
         mensaje=mensaje,
-        referencia_tipo="bloqueo",
+        referencia_tipo=referencia_tipo,
         referencia_id=referencia_id,
     )
 
@@ -280,6 +302,8 @@ def modificar_bloqueo(b, datos, usuario, *, confirmar=False):
 def cancelar_bloqueo(b, usuario):
     if b.cancelado:
         raise ValidationError({"detail": "El bloqueo ya está cancelado."})
+    if b.fecha_fin <= _ahora():
+        raise ValidationError({"detail": "No se puede cancelar un bloqueo que ya finalizó."})
     b.cancelado = True
     b.cancelado_en = _ahora()
     b.save(update_fields=["cancelado", "cancelado_en", "updated_at"])
@@ -387,8 +411,13 @@ def modificar_mantenimiento(m, datos, usuario, *, confirmar=False):
     for campo in ("descripcion", "responsable"):
         if campo in datos:
             setattr(m, campo, datos[campo] or None)
-    if "amenidad" in datos and not bloqueos_asociados:
-        m.amenidad = datos["amenidad"]
+    if "amenidad" in datos:
+        if bloqueos_asociados and datos["amenidad"] != m.amenidad:
+            raise ValidationError(
+                {"amenidad": "No se puede cambiar la amenidad mientras existan bloqueos activos asociados."}
+            )
+        if not bloqueos_asociados:
+            m.amenidad = datos["amenidad"]
     m.fecha_inicio, m.fecha_fin = inicio, fin
     m.save()
 
@@ -402,6 +431,7 @@ def modificar_mantenimiento(m, datos, usuario, *, confirmar=False):
             f"El mantenimiento «{m.titulo}» quedó del {_fmt(inicio)} al {_fmt(fin)}. "
             "Comunícate con la administración para reprogramar tu reserva.",
             m.pk,
+            referencia_tipo="mantenimiento",
         )
     _notificar_mantenimiento(m, "modificado")
     return m
@@ -624,10 +654,12 @@ def publicar_programados_vencidos():
             if c is None:
                 continue
             if c.fecha_expiracion and c.fecha_expiracion <= ahora:
-                c.estado = ARCHIVADO  # venció antes de poder publicarse
-                c.save(update_fields=["estado", "updated_at"])
+                with _como_sistema():
+                    c.estado = ARCHIVADO  # venció antes de poder publicarse
+                    c.save(update_fields=["estado", "updated_at"])
                 continue
-            publicar_comunicado(c)
+            with _como_sistema():
+                publicar_comunicado(c)
             publicados += 1
     return publicados
 

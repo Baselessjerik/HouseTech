@@ -14,7 +14,7 @@ from django.utils.html import escape
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from .models import RecuperacionPassword, Rol, RolPermiso, UsuarioRol
+from .models import RecuperacionPassword, Rol, RolPermiso, Usuario, UsuarioRol
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,14 @@ def guardar_foto_perfil(usuario_id: int, foto_data: str | None) -> str | None:
         raise ValidationError({"foto_perfil": "La imagen codificada en base64 no es válida."})
     if len(raw) > _MAX_AVATAR_BYTES:
         raise ValidationError({"foto_perfil": "La imagen no puede superar los 3 MB."})
+    es_imagen_valida = (
+        raw.startswith(b"\x89PNG\r\n\x1a\n")
+        or raw.startswith(b"\xff\xd8\xff")
+        or raw.startswith((b"GIF87a", b"GIF89a"))
+        or (len(raw) >= 12 and raw[:4] == b"RIFF" and raw[8:12] == b"WEBP")
+    )
+    if not es_imagen_valida:
+        raise ValidationError({"foto_perfil": "El archivo no corresponde a una imagen válida (PNG, JPG, WEBP o GIF)."})
     normalizado = f"data:image/{mime_ext};base64,{base64.b64encode(raw).decode('ascii')}"
     ruta.write_text(normalizado, encoding="utf-8")
     return normalizado
@@ -77,14 +85,24 @@ def _hash_codigo(usuario_id, codigo: str) -> str:
 
 def emitir_codigo_recuperacion(usuario) -> None:
     ahora = timezone.now()
-    # Un código nuevo invalida los anteriores. Se borran (no se marcan como usados) para que,
-    # si el nuevo código coincidiera con uno viejo, no choque con el UNIQUE de token_hash.
-    RecuperacionPassword.objects.filter(usuario=usuario).delete()
+    # Un código nuevo invalida los anteriores sin borrar registros históricos (borrado lógico).
+    RecuperacionPassword.objects.filter(usuario=usuario, usado_en__isnull=True).update(usado_en=ahora)
 
-    codigo = f"{secrets.randbelow(10**6):06d}"
+    # Generar un código de 6 dígitos cuyo hash no haya sido usado antes por este usuario.
+    codigo = None
+    token_hash = None
+    for _ in range(20):
+        candidato = f"{secrets.randbelow(10**6):06d}"
+        h = _hash_codigo(usuario.pk, candidato)
+        if not RecuperacionPassword.objects.filter(token_hash=h).exists():
+            codigo, token_hash = candidato, h
+            break
+    if codigo is None or token_hash is None:
+        raise ValidationError({"detail": "No se pudo generar un código de recuperación en este momento."})
+
     RecuperacionPassword.objects.create(
         usuario=usuario,
-        token_hash=_hash_codigo(usuario.pk, codigo),
+        token_hash=token_hash,
         expira_en=ahora + VIGENCIA_CODIGO,
     )
     try:
@@ -139,8 +157,14 @@ def asignar_roles(usuario, roles, por) -> None:
     nuevos = {r.pk for r in roles}
 
     admin_id = Rol.objects.get(codigo="ADMIN").pk
-    if usuario.pk == por.pk and admin_id in actuales and admin_id not in nuevos:
-        raise ValidationError({"roles": "No puedes quitarte a ti mismo el rol ADMIN."})
+    if admin_id in actuales and admin_id not in nuevos:
+        if usuario.pk == por.pk:
+            raise ValidationError({"roles": "No puedes quitarte a ti mismo el rol ADMIN."})
+        otros_admins = Usuario.objects.filter(
+            activo=True, usuario_roles__rol_id=admin_id
+        ).exclude(pk=usuario.pk).exists()
+        if not otros_admins:
+            raise ValidationError({"roles": "Debe existir al menos un administrador activo en el sistema."})
 
     quitar = actuales - nuevos
     if quitar:

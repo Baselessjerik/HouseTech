@@ -95,6 +95,20 @@ void main() {
     expect(find.text('Auditoría'), findsOneWidget);
   });
 
+  testWidgets('admin con inmuebles.gestionar no ve menú duplicado de inmuebles',
+      (tester) async {
+    await pumpShell(
+      tester,
+      userWith(
+        const ['inmuebles.consultar', 'inmuebles.gestionar'],
+        roles: const ['ADMIN'],
+      ),
+    );
+
+    expect(find.text('Administrar inmuebles'), findsOneWidget);
+    expect(find.text('Inmuebles'), findsNothing);
+  });
+
   testWidgets('conecta las opciones del Módulo 2 en el menú de AppShell',
       (tester) async {
     await pumpShell(

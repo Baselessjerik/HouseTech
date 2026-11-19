@@ -1,7 +1,6 @@
-import datetime
-
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 
 class Inmueble(models.Model):
@@ -46,7 +45,7 @@ class InmuebleUsuario(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.DO_NOTHING, related_name="vinculos_inmueble"
     )
     tipo_relacion = models.CharField(max_length=15, choices=Relacion.choices)
-    fecha_inicio = models.DateField(default=datetime.date.today)
+    fecha_inicio = models.DateField(default=timezone.localdate)
     fecha_fin = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

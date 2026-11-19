@@ -43,15 +43,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     setState(() => _loading = false);
 
     if (result['success'] == true) {
+      _codeController.clear();
       setState(() {
         _codeSent = true;
         _codeValidated = false;
       });
       _message('Si el correo existe, recibirás un código para continuar.');
     } else {
-      if (result['message'].toString().contains('Código inválido')) {
-        setState(() => _codeValidated = false);
-      }
       _message(result['message'].toString(), error: true);
     }
   }
@@ -68,6 +66,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
     if (password.isEmpty || confirmation.isEmpty) {
       _message('Completa los campos de contraseña.', error: true);
+      return;
+    }
+    if (password.length < 8) {
+      _message('La nueva contraseña debe tener mínimo 8 caracteres.', error: true);
       return;
     }
     if (password != confirmation) {
@@ -111,7 +113,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       );
       if (mounted) Navigator.pop(context);
     } else {
-      _message(result['message'].toString(), error: true);
+      final msg = result['message'].toString();
+      if (msg.contains('Código inválido') || msg.contains('vencido')) {
+        setState(() => _codeValidated = false);
+      }
+      _message(msg, error: true);
     }
   }
 
@@ -335,7 +341,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         const SizedBox(height: 12),
         TextField(
           controller: _confirmPasswordController,
-          obscureText: true,
+          obscureText: !_newPasswordVisible,
           decoration: const InputDecoration(
             labelText: 'Repite la nueva contraseña',
             prefixIcon: Icon(Icons.lock_outline, color: AppColors.oceanBlue),

@@ -10,6 +10,7 @@ import datetime as dt
 from contextlib import contextmanager
 
 from django.db import connection, transaction
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
@@ -121,6 +122,7 @@ def verificar_disponibilidad(
     *,
     num_personas: int | None = None,
     inmueble=None,
+    usuario=None,
     excluir_reserva_id: int | None = None,
     ahora: dt.datetime | None = None,
 ) -> list[dict]:
@@ -176,21 +178,25 @@ def verificar_disponibilidad(
     if amenidad.capacidad and num_personas is not None and num_personas > amenidad.capacidad:
         motivo("AFORO_EXCEDIDO", f"El aforo máximo es de {amenidad.capacidad} personas ({num_personas} solicitadas).")
 
-    # Cupo mensual por inmueble
-    if regla.max_reservas_mes_inmueble and inmueble is not None:
+    # Cupo mensual por inmueble (con respaldo por usuario cuando no hay inmueble asociado)
+    if regla.max_reservas_mes_inmueble and (inmueble is not None or usuario is not None):
         inicio_mes = ini_local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         fin_mes = (inicio_mes + dt.timedelta(days=32)).replace(day=1)
         usadas = Reserva.objects.filter(
             amenidad=amenidad,
-            inmueble=inmueble,
             estado__codigo__in=ESTADOS_CUENTAN_CUPO,
             fecha_inicio__gte=inicio_mes,
             fecha_inicio__lt=fin_mes,
         )
+        if inmueble is not None:
+            usadas = usadas.filter(inmueble=inmueble)
+        else:
+            usadas = usadas.filter(usuario=usuario, inmueble__isnull=True)
         if excluir_reserva_id:
             usadas = usadas.exclude(pk=excluir_reserva_id)
         if usadas.count() >= regla.max_reservas_mes_inmueble:
-            motivo("CUPO_MENSUAL", f"El inmueble alcanzó el máximo de {regla.max_reservas_mes_inmueble} reserva(s) al mes para esta amenidad.")
+            sujeto = "El inmueble" if inmueble is not None else "Tu cuenta"
+            motivo("CUPO_MENSUAL", f"{sujeto} alcanzó el máximo de {regla.max_reservas_mes_inmueble} reserva(s) al mes para esta amenidad.")
 
     # Solapamientos con reservas y con bloqueos (RF11)
     for r in reservas_en_rango(amenidad.pk, inicio, fin, excluir_id=excluir_reserva_id):
@@ -247,11 +253,21 @@ def eventos_agenda(desde: dt.datetime, hasta: dt.datetime, usuario, *, amenidad_
     """Reservas y bloqueos en [desde, hasta). Quien no administra ve las reservas ajenas como
     'Ocupado' (sin datos personales) y las propias completas."""
     gestor = es_gestor(usuario)
-    estados = estados or ("SOLICITADA", "CONFIRMADA", "FINALIZADA")
+    estados_publicos = ("SOLICITADA", "CONFIRMADA", "FINALIZADA")
+    estados = estados or estados_publicos
     reservas = (
-        Reserva.objects.filter(fecha_inicio__lt=hasta, fecha_fin__gt=desde, estado__codigo__in=estados)
+        Reserva.objects.filter(fecha_inicio__lt=hasta, fecha_fin__gt=desde)
         .select_related("amenidad", "usuario", "inmueble", "estado")
     )
+    if gestor:
+        reservas = reservas.filter(estado__codigo__in=estados)
+    else:
+        # Un residente nunca debe inferir reservas RECHAZADA/CANCELADA/EXPIRADA ajenas vía ?estado=
+        estados_ajenos = [e for e in estados if e in estados_publicos]
+        filtro = Q(usuario=usuario, estado__codigo__in=estados)
+        if estados_ajenos:
+            filtro |= Q(estado__codigo__in=estados_ajenos)
+        reservas = reservas.filter(filtro)
     bloqueos = BloqueoAmenidad.objects.filter(
         cancelado=False, fecha_inicio__lt=hasta, fecha_fin__gt=desde
     ).select_related("amenidad")
@@ -284,15 +300,27 @@ def eventos_agenda(desde: dt.datetime, hasta: dt.datetime, usuario, *, amenidad_
 
 
 # --- inmueble del solicitante ----------------------------------------------------------
-def resolver_inmueble(usuario, inmueble, *, gestor: bool):
-    """Valida el inmueble indicado o, si hay uno solo vigente, lo asigna automáticamente."""
-    vigentes = InmuebleUsuario.objects.filter(usuario=usuario, fecha_fin__isnull=True).select_related("inmueble")
+def resolver_inmueble(usuario, inmueble, *, gestor: bool, exigir_si_varios: bool = False):
+    """Valida el inmueble indicado o, si hay uno solo vigente y activo, lo asigna automáticamente."""
+    hoy = timezone.localdate()
+    vigentes = InmuebleUsuario.objects.filter(
+        usuario=usuario,
+        fecha_fin__isnull=True,
+        fecha_inicio__lte=hoy,
+        inmueble__activo=True,
+    ).select_related("inmueble")
     if inmueble is not None:
+        if not inmueble.activo:
+            raise ValidationError({"inmueble": "El inmueble seleccionado está inactivo."})
         if not gestor and not vigentes.filter(inmueble=inmueble).exists():
             raise ValidationError({"inmueble": "El inmueble no está asociado a tu cuenta."})
         return inmueble
     inmuebles = {v.inmueble_id: v.inmueble for v in vigentes}
-    return next(iter(inmuebles.values())) if len(inmuebles) == 1 else None
+    if len(inmuebles) == 1:
+        return next(iter(inmuebles.values()))
+    if exigir_si_varios and not gestor and len(inmuebles) > 1:
+        raise ValidationError({"inmueble": "Tienes varios inmuebles activos; selecciona el inmueble para esta reserva."})
+    return None
 
 
 # --- reservas ------------------------------------------------------------------------------
@@ -302,7 +330,9 @@ def crear_reserva(*, amenidad, usuario, inicio, fin, num_personas, inmueble=None
         amenidad = Amenidad.objects.select_for_update().get(pk=amenidad.pk)
         # Una solicitud vencida que el proceso periódico aún no liberó no debe bloquear el horario.
         liberar_no_confirmadas(amenidad_id=amenidad.pk)
-        motivos = verificar_disponibilidad(amenidad, inicio, fin, num_personas=num_personas, inmueble=inmueble)
+        motivos = verificar_disponibilidad(
+            amenidad, inicio, fin, num_personas=num_personas, inmueble=inmueble, usuario=usuario
+        )
         if motivos:
             raise ReservaNoPermitida(motivos)
 
@@ -338,49 +368,65 @@ def puede_cancelar(reserva: Reserva, usuario, *, ahora: dt.datetime | None = Non
     return reserva.usuario_id == usuario.pk and (ahora or timezone.now()) <= limite_cancelacion(reserva)
 
 
+def _bloquear_reserva(reserva_id: int) -> Reserva:
+    return (
+        Reserva.objects.select_for_update(of=("self",))
+        .select_related("estado", "amenidad", "usuario")
+        .get(pk=reserva_id)
+    )
+
+
 def cancelar_reserva(reserva: Reserva, usuario, motivo: str | None = None) -> Reserva:
     gestor = es_gestor(usuario)
-    if not gestor and reserva.usuario_id != usuario.pk:
-        raise PermissionDenied("Solo puedes cancelar tus propias reservas.")
-    nuevo_estado = _transicionar(reserva, "CANCELADA")
-    if not puede_cancelar(reserva, usuario):
-        horas_limite = obtener_regla(reserva.amenidad).horas_limite_cancelacion
-        raise ValidationError({"detail": f"Solo se puede cancelar hasta {horas_limite} hora(s) antes del inicio de la reserva."})
+    with transaction.atomic():
+        reserva = _bloquear_reserva(reserva.pk)
+        if not gestor and reserva.usuario_id != usuario.pk:
+            raise PermissionDenied("Solo puedes cancelar tus propias reservas.")
+        nuevo_estado = _transicionar(reserva, "CANCELADA")
+        if not puede_cancelar(reserva, usuario):
+            horas_limite = obtener_regla(reserva.amenidad).horas_limite_cancelacion
+            raise ValidationError({"detail": f"Solo se puede cancelar hasta {horas_limite} hora(s) antes del inicio de la reserva."})
 
-    reserva.estado = nuevo_estado
-    reserva.cancelada_por, reserva.cancelada_en = usuario, timezone.now()
-    reserva.motivo_cancelacion = motivo or ("Cancelada por la administración" if gestor and reserva.usuario_id != usuario.pk else "Cancelada por el usuario")
-    reserva.save(update_fields=["estado", "cancelada_por", "cancelada_en", "motivo_cancelacion", "updated_at"])
-    if reserva.usuario_id != usuario.pk:
-        avisos.cancelada_por_otro(reserva)
-    return reserva
+        reserva.estado = nuevo_estado
+        reserva.cancelada_por, reserva.cancelada_en = usuario, timezone.now()
+        reserva.motivo_cancelacion = motivo or ("Cancelada por la administración" if gestor and reserva.usuario_id != usuario.pk else "Cancelada por el usuario")
+        reserva.save(update_fields=["estado", "cancelada_por", "cancelada_en", "motivo_cancelacion", "updated_at"])
+        if reserva.usuario_id != usuario.pk:
+            avisos.cancelada_por_otro(reserva)
+        return reserva
 
 
 def confirmar_reserva(reserva: Reserva, usuario, *, ahora: dt.datetime | None = None) -> Reserva:
-    nuevo_estado = _transicionar(reserva, "CONFIRMADA")
-    if (ahora or timezone.now()) > limite_confirmacion(reserva):
-        raise ValidationError({"detail": "La solicitud superó su plazo de confirmación y será liberada automáticamente."})
-    reserva.estado = nuevo_estado
-    reserva.confirmada_por, reserva.confirmada_en = usuario, timezone.now()
-    reserva.save(update_fields=["estado", "confirmada_por", "confirmada_en", "updated_at"])
-    avisos.confirmada(reserva)
-    return reserva
+    with transaction.atomic():
+        reserva = _bloquear_reserva(reserva.pk)
+        nuevo_estado = _transicionar(reserva, "CONFIRMADA")
+        if (ahora or timezone.now()) > limite_confirmacion(reserva):
+            raise ValidationError({"detail": "La solicitud superó su plazo de confirmación y será liberada automáticamente."})
+        reserva.estado = nuevo_estado
+        reserva.confirmada_por, reserva.confirmada_en = usuario, timezone.now()
+        reserva.save(update_fields=["estado", "confirmada_por", "confirmada_en", "updated_at"])
+        avisos.confirmada(reserva)
+        return reserva
 
 
 def rechazar_reserva(reserva: Reserva, usuario, motivo: str | None = None) -> Reserva:
-    if reserva.estado.codigo != "SOLICITADA":
-        raise ValidationError({"detail": "Solo se pueden rechazar reservas en estado SOLICITADA."})
-    reserva.estado = _transicionar(reserva, "RECHAZADA")
-    reserva.motivo_cancelacion = motivo or "Rechazada por la administración"
-    reserva.save(update_fields=["estado", "motivo_cancelacion", "updated_at"])
-    avisos.rechazada(reserva)
-    return reserva
+    with transaction.atomic():
+        reserva = _bloquear_reserva(reserva.pk)
+        if reserva.estado.codigo != "SOLICITADA":
+            raise ValidationError({"detail": "Solo se pueden rechazar reservas en estado SOLICITADA."})
+        reserva.estado = _transicionar(reserva, "RECHAZADA")
+        reserva.motivo_cancelacion = motivo or "Rechazada por la administración"
+        reserva.save(update_fields=["estado", "motivo_cancelacion", "updated_at"])
+        avisos.rechazada(reserva)
+        return reserva
 
 
 def finalizar_reserva(reserva: Reserva) -> Reserva:
-    reserva.estado = _transicionar(reserva, "FINALIZADA")
-    reserva.save(update_fields=["estado", "updated_at"])
-    return reserva
+    with transaction.atomic():
+        reserva = _bloquear_reserva(reserva.pk)
+        reserva.estado = _transicionar(reserva, "FINALIZADA")
+        reserva.save(update_fields=["estado", "updated_at"])
+        return reserva
 
 
 def finalizar_vencidas(ahora: dt.datetime | None = None) -> int:

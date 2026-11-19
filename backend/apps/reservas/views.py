@@ -4,6 +4,7 @@ from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.generics import ListAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -107,14 +108,16 @@ class AmenidadViewSet(viewsets.ModelViewSet):
         params = VerificarQuerySerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
         datos = params.validated_data
+        gestor = services.es_gestor(request.user)
         inmueble = None
         if datos.get("inmueble"):
             inmueble = Inmueble.objects.filter(pk=datos["inmueble"]).first()
-        else:
-            inmueble = services.resolver_inmueble(request.user, None, gestor=services.es_gestor(request.user))
+            if inmueble is None:
+                raise ValidationError({"inmueble": "El inmueble indicado no existe."})
+        inmueble = services.resolver_inmueble(request.user, inmueble, gestor=gestor)
         motivos = services.verificar_disponibilidad(
             self.get_object(), datos["inicio"], datos["fin"],
-            num_personas=datos.get("num_personas"), inmueble=inmueble,
+            num_personas=datos.get("num_personas"), inmueble=inmueble, usuario=request.user,
         )
         return Response({"disponible": not motivos, "motivos": motivos})
 
@@ -146,8 +149,6 @@ class ReservaViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Cr
     def get_permissions(self):
         if self.action in {"confirmar", "rechazar", "finalizar", "procesar"}:
             clase = PuedeAdministrarReservas
-        elif self.action == "create":
-            clase = requiere_permiso("reservas.solicitar")
         else:
             clase = PuedeVerReservas
         return [IsAuthenticated(), clase()]
@@ -166,7 +167,9 @@ class ReservaViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.Cr
         d = serializer.validated_data
         gestor = services.es_gestor(request.user)
         titular = d.get("usuario") or request.user
-        inmueble = services.resolver_inmueble(titular, d.get("inmueble"), gestor=gestor)
+        inmueble = services.resolver_inmueble(
+            titular, d.get("inmueble"), gestor=gestor, exigir_si_varios=not gestor
+        )
         reserva = services.crear_reserva(
             amenidad=d["amenidad"], usuario=titular, inicio=d["fecha_inicio"], fin=d["fecha_fin"],
             num_personas=d["num_personas"], inmueble=inmueble, observaciones=d.get("observaciones"),

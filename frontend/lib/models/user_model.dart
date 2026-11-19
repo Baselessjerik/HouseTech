@@ -32,6 +32,10 @@ class UserModel {
   final String? fotoPerfil;
   final String? ultimoLogin;
 
+  // Caché estático acotado para evitar re-decodificar base64 en cada build
+  // y permitir que MemoryImage reutilice la misma instancia Uint8List en ImageCache.
+  static final Map<String, Uint8List?> _fotoCache = <String, Uint8List?>{};
+
   factory UserModel.fromJson(Map<String, dynamic> json) {
     return UserModel(
       id: json['id'] as int,
@@ -53,11 +57,18 @@ class UserModel {
   Uint8List? get fotoBytes {
     final raw = fotoPerfil;
     if (raw == null || raw.isEmpty) return null;
+    if (_fotoCache.containsKey(raw)) return _fotoCache[raw];
+    if (_fotoCache.length >= 60) {
+      _fotoCache.remove(_fotoCache.keys.first);
+    }
     final commaIdx = raw.indexOf(',');
     final b64 = commaIdx >= 0 ? raw.substring(commaIdx + 1) : raw;
     try {
-      return base64Decode(b64.replaceAll(RegExp(r'\s+'), ''));
+      final decoded = base64Decode(b64.replaceAll(RegExp(r'\s+'), ''));
+      _fotoCache[raw] = decoded;
+      return decoded;
     } catch (_) {
+      _fotoCache[raw] = null;
       return null;
     }
   }
@@ -65,8 +76,10 @@ class UserModel {
   String get nombreCompleto => '$nombres $apellidos'.trim();
 
   String get iniciales {
-    final first = nombres.isNotEmpty ? nombres[0] : '';
-    final last = apellidos.isNotEmpty ? apellidos[0] : '';
+    final n = nombres.trim();
+    final a = apellidos.trim();
+    final first = n.isNotEmpty ? String.fromCharCode(n.runes.first) : '';
+    final last = a.isNotEmpty ? String.fromCharCode(a.runes.first) : '';
     return '$first$last'.toUpperCase();
   }
 

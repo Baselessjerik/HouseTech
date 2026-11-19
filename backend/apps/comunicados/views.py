@@ -1,5 +1,6 @@
 from urllib.parse import quote
 
+from django.db import transaction
 from django.db.models import Q
 from django.http import Http404, HttpResponse
 from django.urls import reverse
@@ -15,7 +16,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.permissions import requiere_permiso
+from apps.core.permissions import requiere_algun_permiso, requiere_permiso
 from apps.usuarios.models import Rol, Usuario
 
 from . import services
@@ -53,6 +54,13 @@ from .serializers import (
 PuedeGestionarBloqueos = requiere_permiso("bloqueos.gestionar")
 PuedeGestionarComunicados = requiere_permiso("comunicados.gestionar")
 PuedeVerComunicados = requiere_permiso("comunicados.ver")
+PuedeConsultarDisponibilidad = requiere_algun_permiso(
+    "comunicados.ver",
+    "reservas.solicitar",
+    "amenidades.gestionar",
+    "configuracion.gestionar",
+    "bloqueos.gestionar",
+)
 
 PARAM_CONFIRMAR = OpenApiParameter(
     "confirmar", OpenApiTypes.BOOL, description="Continuar aunque haya reservas en conflicto (se avisa a sus dueños)."
@@ -161,16 +169,23 @@ class BloqueoViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
         if cancelar_reservas:
             from apps.reservas import services as reservas_services
 
-            bloqueo, canceladas = reservas_services.crear_bloqueo(
-                amenidad=datos["amenidad"],
-                inicio=datos["fecha_inicio"],
-                fin=datos["fecha_fin"],
-                motivo=datos["motivo"],
-                usuario=request.user,
-                cancelar_reservas=True,
-            )
-            b = Bloqueo.objects.select_related("amenidad", "mantenimiento", "creado_por").get(pk=bloqueo.pk)
-            services._notificar_bloqueo(b, "creado")
+            services._validar_rango_nuevo(datos["fecha_inicio"], datos["fecha_fin"])
+            with transaction.atomic():
+                services._verificar_bloqueo(
+                    datos["amenidad"].pk, datos["fecha_inicio"], datos["fecha_fin"], confirmar=True
+                )
+                bloqueo, canceladas = reservas_services.crear_bloqueo(
+                    amenidad=datos["amenidad"],
+                    inicio=datos["fecha_inicio"],
+                    fin=datos["fecha_fin"],
+                    motivo=datos["motivo"],
+                    usuario=request.user,
+                    cancelar_reservas=True,
+                )
+                if datos.get("mantenimiento") is not None:
+                    Bloqueo.objects.filter(pk=bloqueo.pk).update(mantenimiento=datos["mantenimiento"])
+                b = Bloqueo.objects.select_related("amenidad", "mantenimiento", "creado_por").get(pk=bloqueo.pk)
+                services._notificar_bloqueo(b, "creado")
             resp = BloqueoSerializer(b).data
             resp["reservas_canceladas"] = [r.pk for r in canceladas]
             return Response(resp, status=status.HTTP_201_CREATED)
@@ -210,6 +225,8 @@ def _momento(request):
 class DisponibilidadView(APIView):
     """Estado de todas las amenidades activas (DISPONIBLE, RESERVADA, BLOQUEADA, EN_MANTENIMIENTO)."""
 
+    permission_classes = [IsAuthenticated, PuedeConsultarDisponibilidad]
+
     @extend_schema(
         parameters=[OpenApiParameter("momento", OpenApiTypes.DATETIME, description="Por defecto, ahora.")],
         responses=DisponibilidadSerializer(many=True),
@@ -220,6 +237,8 @@ class DisponibilidadView(APIView):
 
 
 class DisponibilidadDetalleView(APIView):
+    permission_classes = [IsAuthenticated, PuedeConsultarDisponibilidad]
+
     @extend_schema(
         parameters=[
             OpenApiParameter("momento", OpenApiTypes.DATETIME, description="Por defecto, ahora."),
@@ -272,6 +291,12 @@ class CategoriaViewSet(viewsets.ModelViewSet):
         if not self.request.user.tiene_permiso("comunicados.gestionar"):
             qs = qs.filter(activa=True)
         return qs
+
+    def perform_destroy(self, instance):
+        """Desactiva la categoría en vez de borrarla físicamente para conservar el histórico."""
+        if instance.activa:
+            instance.activa = False
+            instance.save(update_fields=["activa"])
 
 
 # ------------------------------------------------------------- comunicados (RF9-RF15)

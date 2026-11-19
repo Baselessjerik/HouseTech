@@ -54,6 +54,9 @@ class ApiClient {
   Future<dynamic> patch(String url, {Map<String, dynamic>? body, Map<String, String>? query}) =>
       _enviar('PATCH', url, body: body, query: query);
 
+  Future<dynamic> put(String url, {Map<String, dynamic>? body, Map<String, String>? query}) =>
+      _enviar('PUT', url, body: body, query: query);
+
   Future<dynamic> delete(String url) => _enviar('DELETE', url);
 
   /// Sube un archivo (multipart/form-data) con el mismo manejo de sesión que las demás llamadas.
@@ -108,6 +111,8 @@ class ApiClient {
         return http.post(uri, headers: headers, body: cuerpo ?? '{}');
       case 'PATCH':
         return http.patch(uri, headers: headers, body: cuerpo ?? '{}');
+      case 'PUT':
+        return http.put(uri, headers: headers, body: cuerpo ?? '{}');
       case 'DELETE':
         return http.delete(uri, headers: headers);
       default:

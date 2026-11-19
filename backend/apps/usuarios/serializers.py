@@ -152,8 +152,35 @@ class RegistroSerializer(serializers.ModelSerializer):
         return usuario
 
 
+class PerfilPropioUpdateSerializer(serializers.ModelSerializer):
+    """Edición del propio perfil (/auth/me/): solo contacto y foto (nombres/apellidos son fijos)."""
+
+    email = serializers.EmailField(max_length=150)
+    foto_perfil = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+
+    class Meta:
+        model = Usuario
+        fields = ["telefono", "email", "foto_perfil"]
+
+    def validate_email(self, valor):
+        return _verificar_unico(
+            "email", valor, "Este correo ya está registrado.", excluir_pk=self.instance.pk
+        )
+
+    def update(self, instance, validated_data):
+        tiene_foto = "foto_perfil" in validated_data
+        foto = validated_data.pop("foto_perfil", None)
+        for campo, valor in validated_data.items():
+            setattr(instance, campo, valor)
+        if validated_data:
+            instance.save(update_fields=list(validated_data))
+        if tiene_foto:
+            guardar_foto_perfil(instance.pk, foto)
+        return instance
+
+
 class PerfilUpdateSerializer(serializers.ModelSerializer):
-    """Lo único que el usuario puede editar de sí mismo (incluye foto_perfil)."""
+    """Edición administrativa de un usuario (/usuarios/{id}/)."""
 
     email = serializers.EmailField(max_length=150)
     foto_perfil = serializers.CharField(required=False, allow_null=True, allow_blank=True)
@@ -263,7 +290,10 @@ class UsuarioAdminCreateSerializer(RegistroSerializer):
     """Alta por el administrador: igual que el registro, pero eligiendo los roles."""
 
     roles = serializers.ListField(
-        child=serializers.CharField(), required=False, help_text="Códigos de rol. Por defecto: RESIDENTE"
+        child=serializers.CharField(),
+        required=False,
+        allow_empty=False,
+        help_text="Códigos de rol. Por defecto: RESIDENTE",
     )
 
     class Meta(RegistroSerializer.Meta):
@@ -388,6 +418,61 @@ class InmuebleSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Ya existe un inmueble con este código interno.")
         return valor.strip()
 
+    def validate_numero(self, valor):
+        limpio = (valor or "").strip()
+        if not limpio:
+            raise serializers.ValidationError("El número del inmueble es obligatorio.")
+        return limpio
+
+    def validate_torre_bloque(self, valor):
+        if valor is None:
+            return None
+        limpio = valor.strip()
+        return limpio or None
+
+    def validate_piso(self, valor):
+        if valor is None:
+            return None
+        if valor < -5 or valor > 200:
+            raise serializers.ValidationError("El piso debe estar entre -5 y 200.")
+        return valor
+
+    def validate_area_m2(self, valor):
+        if valor is not None and valor <= 0:
+            raise serializers.ValidationError("El área (m²) debe ser mayor que 0.")
+        return valor
+
+    def validate(self, attrs):
+        copropiedad = attrs.get("copropiedad")
+        if copropiedad is None:
+            if self.instance is not None:
+                copropiedad = self.instance.copropiedad
+            else:
+                copropiedad = Copropiedad.objects.order_by("id").first()
+
+        torre = attrs["torre_bloque"] if "torre_bloque" in attrs else (
+            self.instance.torre_bloque if self.instance is not None else None
+        )
+        numero = attrs["numero"] if "numero" in attrs else (
+            self.instance.numero if self.instance is not None else ""
+        )
+
+        if copropiedad is not None and numero:
+            qs = Inmueble.objects.filter(copropiedad=copropiedad, numero=numero)
+            if torre:
+                qs = qs.filter(torre_bloque=torre)
+            else:
+                qs = qs.filter(torre_bloque__isnull=True) | Inmueble.objects.filter(
+                    copropiedad=copropiedad, numero=numero, torre_bloque=""
+                )
+            if self.instance is not None:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError({
+                    "numero": "Ya existe un inmueble con este número y torre/manzana en la copropiedad."
+                })
+        return attrs
+
     def create(self, validated_data):
         if "copropiedad" not in validated_data or validated_data["copropiedad"] is None:
             copropiedad = Copropiedad.objects.order_by("id").first()
@@ -407,8 +492,20 @@ class InmuebleSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
     def update(self, instance, validated_data):
-        if "codigo_interno" in validated_data and not validated_data["codigo_interno"]:
+        codigo_explicito = validated_data.get("codigo_interno")
+        if "codigo_interno" in validated_data and not codigo_explicito:
             validated_data.pop("codigo_interno")
+
+        cambio_ubicacion = any(
+            k in validated_data and validated_data[k] != getattr(instance, k)
+            for k in ("tipo", "torre_bloque", "numero")
+        )
+        if cambio_ubicacion and not codigo_explicito:
+            validated_data["codigo_interno"] = self._generar_codigo_unico(
+                validated_data.get("tipo", instance.tipo),
+                validated_data.get("torre_bloque", instance.torre_bloque),
+                validated_data.get("numero", instance.numero),
+            )
         return super().update(instance, validated_data)
 
 
@@ -428,6 +525,7 @@ class VincularUsuarioInmuebleSerializer(serializers.Serializer):
 
 class CopropiedadSerializer(serializers.ModelSerializer):
     total_inmuebles = serializers.SerializerMethodField()
+    email = serializers.EmailField(max_length=150, required=False, allow_null=True, allow_blank=True)
 
     class Meta:
         model = Copropiedad
@@ -436,6 +534,17 @@ class CopropiedadSerializer(serializers.ModelSerializer):
             "telefono", "email", "descripcion", "total_inmuebles",
         ]
         read_only_fields = ["id", "total_inmuebles"]
+
+    def validate_nit(self, valor):
+        if valor is None or not str(valor).strip():
+            return None
+        limpio = str(valor).strip()
+        qs = Copropiedad.objects.filter(nit__iexact=limpio)
+        if self.instance is not None:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError("Ya existe una copropiedad registrada con este NIT.")
+        return limpio
 
     @extend_schema_field(serializers.IntegerField())
     def get_total_inmuebles(self, obj):

@@ -9,6 +9,14 @@ import '../models/user_model.dart';
 class AuthService {
   final _storage = const FlutterSecureStorage();
 
+  Map<String, dynamic> _decodeJson(http.Response response) {
+    if (response.bodyBytes.isEmpty) return <String, dynamic>{};
+    final texto = utf8.decode(response.bodyBytes, allowMalformed: true);
+    if (texto.trim().isEmpty) return <String, dynamic>{};
+    final decoded = jsonDecode(texto);
+    return decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
+  }
+
   Future<Map<String, dynamic>> login(String username, String password) async {
     return _post(
         ApiConfig.loginUrl,
@@ -68,29 +76,35 @@ class AuthService {
   }
 
   Future<UserModel?> obtenerPerfil() async {
-    final response = await _authenticatedRequest(
-      () async =>
-          http.get(Uri.parse(ApiConfig.perfilUrl), headers: await _headers()),
-    );
-    if (response.statusCode != 200) return null;
-    return UserModel.fromJson(
-        jsonDecode(response.body) as Map<String, dynamic>);
+    try {
+      final response = await _authenticatedRequest(
+        () async =>
+            http.get(Uri.parse(ApiConfig.perfilUrl), headers: await _headers()),
+      );
+      if (response.statusCode != 200) return null;
+      return UserModel.fromJson(_decodeJson(response));
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<Map<String, dynamic>> cerrarSesion() async {
-    final refresh = await _storage.read(key: 'refresh_token');
-    final access = await _storage.read(key: 'access_token');
-    if (refresh != null && access != null) {
-      await http.post(
-        Uri.parse(ApiConfig.logoutUrl),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $access'
-        },
-        body: jsonEncode({'refresh': refresh}),
-      );
+    try {
+      final refresh = await _storage.read(key: 'refresh_token');
+      if (refresh != null && refresh.isNotEmpty) {
+        await _authenticatedRequest(
+          () async => http.post(
+            Uri.parse(ApiConfig.logoutUrl),
+            headers: await _headers(),
+            body: jsonEncode({'refresh': refresh}),
+          ),
+        );
+      }
+    } catch (_) {
+      // Incluso sin red o con backend caído, limpiamos tokens locales.
+    } finally {
+      await _clearTokens();
     }
-    await _clearTokens();
     return {'success': true};
   }
 
@@ -127,9 +141,7 @@ class AuthService {
           body: jsonEncode(body),
         ),
       );
-      final data = response.body.isEmpty
-          ? <String, dynamic>{}
-          : jsonDecode(response.body) as Map<String, dynamic>;
+      final data = _decodeJson(response);
       if (response.statusCode == 200) {
         return {
           'success': true,
@@ -176,9 +188,7 @@ class AuthService {
           body: jsonEncode(body),
         ),
       );
-      final data = response.body.isEmpty
-          ? <String, dynamic>{}
-          : jsonDecode(response.body) as Map<String, dynamic>;
+      final data = _decodeJson(response);
       return response.statusCode == 200 || response.statusCode == 204
           ? {'success': true, 'data': data}
           : {'success': false, 'message': _message(data)};
@@ -200,8 +210,10 @@ class AuthService {
         body: jsonEncode({'refresh': refresh}),
       );
       if (response.statusCode != 200) return false;
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      await _storage.write(key: 'access_token', value: data['access']);
+      final data = _decodeJson(response);
+      final access = data['access']?.toString();
+      if (access == null || access.isEmpty) return false;
+      await _storage.write(key: 'access_token', value: access);
       return true;
     } catch (_) {
       return false;
@@ -224,9 +236,7 @@ class AuthService {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(body),
       );
-      final data = response.body.isEmpty
-          ? <String, dynamic>{}
-          : jsonDecode(response.body) as Map<String, dynamic>;
+      final data = _decodeJson(response);
       if (response.statusCode == 200 ||
           response.statusCode == 201 ||
           response.statusCode == 204) {

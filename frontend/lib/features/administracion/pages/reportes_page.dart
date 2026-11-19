@@ -19,8 +19,8 @@ class _ReportesPageState extends State<ReportesPage> {
 
   ReporteOcupacionModel? _ocupacion;
   List<AmenidadModel> _amenidades = const [];
-  int _totalUsuarios = 0;
-  int _totalInmuebles = 0;
+  int? _totalUsuarios;
+  int? _totalInmuebles;
   bool _cargando = true;
   String? _error;
 
@@ -45,18 +45,42 @@ class _ReportesPageState extends State<ReportesPage> {
       _error = null;
     });
     try {
-      final results = await Future.wait([
-        _reservasSvc.reporteOcupacion(),
-        _reservasSvc.listarAmenidades(),
-        _modulo1Svc.listarUsuarios(),
-        _modulo1Svc.listarInmuebles(mios: false),
-      ]);
+      final ocupacion = await _reservasSvc.reporteOcupacion();
+
+      List<AmenidadModel> amenidades = const [];
+      try {
+        amenidades = await _reservasSvc.listarAmenidades(activa: true);
+      } catch (_) {
+        // Si el rol tiene reportes.ver pero no permiso de amenidades, derivamos de ocupacion
+        amenidades = ocupacion.amenidades
+            .map((a) => AmenidadModel(
+                  id: a.amenidadId,
+                  nombre: a.amenidad,
+                ))
+            .toList();
+      }
+
+      int? totalUsuarios;
+      int? totalInmuebles;
+      try {
+        final uPag = await _modulo1Svc.listarUsuariosPaginado();
+        totalUsuarios = uPag.total;
+      } catch (_) {
+        // El rol puede tener reportes.ver sin usuarios.gestionar
+      }
+      try {
+        final iPag = await _modulo1Svc.listarInmueblesPaginado(mios: false);
+        totalInmuebles = iPag.total;
+      } catch (_) {
+        // El rol puede tener reportes.ver sin inmuebles.consultar
+      }
+
       if (!mounted) return;
       setState(() {
-        _ocupacion = results[0] as ReporteOcupacionModel;
-        _amenidades = results[1] as List<AmenidadModel>;
-        _totalUsuarios = (results[2] as List).length;
-        _totalInmuebles = (results[3] as List).length;
+        _ocupacion = ocupacion;
+        _amenidades = amenidades;
+        _totalUsuarios = totalUsuarios;
+        _totalInmuebles = totalInmuebles;
         _cargando = false;
       });
     } catch (e) {
@@ -174,8 +198,12 @@ class _ReportesPageState extends State<ReportesPage> {
             _KpiCard(
               icon: Icons.people_alt_rounded,
               title: 'Comunidad registrada',
-              value: '$_totalUsuarios usuarios',
-              subtitle: '$_totalInmuebles inmuebles registrados',
+              value: _totalUsuarios != null
+                  ? '$_totalUsuarios usuarios'
+                  : 'No disponible',
+              subtitle: _totalInmuebles != null
+                  ? '$_totalInmuebles inmuebles registrados'
+                  : 'Sin acceso al catálogo',
               color: const Color(0xFF7C3AED),
             ),
           ],
@@ -229,33 +257,53 @@ class _ReportesPageState extends State<ReportesPage> {
                           ),
                           const SizedBox(height: 24),
                           SizedBox(
-                            height: 210,
+                            height: 225,
                             child: rep.amenidades.isEmpty
                                 ? const Center(
                                     child: Text('Sin datos de zonas comunes'))
-                                : Row(
-                                    crossAxisAlignment: CrossAxisAlignment.end,
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceEvenly,
-                                    children: [
-                                      for (var i = 0;
-                                          i < rep.amenidades.length;
-                                          i++)
-                                        Expanded(
-                                          child: _BarraVerticalAmenidad(
-                                            nombre: rep.amenidades[i].amenidad,
-                                            reservas:
-                                                rep.amenidades[i].reservas,
-                                            horas: rep
-                                                .amenidades[i].horasReservadas,
-                                            proporcion: rep
-                                                    .amenidades[i].reservas /
-                                                maxReservasAmenidad,
-                                            color: _paletaColores[
-                                                i % _paletaColores.length],
+                                : LayoutBuilder(
+                                    builder: (context, chartConstraints) {
+                                      const minAnchoBarra = 78.0;
+                                      final anchoNecesario =
+                                          rep.amenidades.length * minAnchoBarra;
+                                      final anchoContenido = math.max(
+                                        chartConstraints.maxWidth,
+                                        anchoNecesario,
+                                      );
+                                      return SingleChildScrollView(
+                                        scrollDirection: Axis.horizontal,
+                                        child: SizedBox(
+                                          width: anchoContenido,
+                                          child: Row(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.end,
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.spaceEvenly,
+                                            children: [
+                                              for (var i = 0;
+                                                  i < rep.amenidades.length;
+                                                  i++)
+                                                Expanded(
+                                                  child: _BarraVerticalAmenidad(
+                                                    nombre: rep
+                                                        .amenidades[i].amenidad,
+                                                    reservas: rep
+                                                        .amenidades[i].reservas,
+                                                    horas: rep.amenidades[i]
+                                                        .horasReservadas,
+                                                    proporcion: rep
+                                                            .amenidades[i]
+                                                            .reservas /
+                                                        maxReservasAmenidad,
+                                                    color: _paletaColores[i %
+                                                        _paletaColores.length],
+                                                  ),
+                                                ),
+                                            ],
                                           ),
                                         ),
-                                    ],
+                                      );
+                                    },
                                   ),
                           ),
                         ],
@@ -478,7 +526,9 @@ class _ReportesPageState extends State<ReportesPage> {
                                   size: 18, color: Color(0xFFD97706)),
                               const SizedBox(width: 8),
                               Text(
-                                '${z.nombre} (Cap. ${z.capacidad})',
+                                z.capacidad != null
+                                    ? '${z.nombre} (Cap. ${z.capacidad})'
+                                    : z.nombre,
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w600,
                                   color: Color(0xFF92400E),

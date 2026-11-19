@@ -48,10 +48,11 @@ class _AppShellState extends ConsumerState<AppShell> {
               title: const _Brand(compact: true),
               iconTheme: const IconThemeData(color: AppColors.textDark),
             ),
-      drawer: isDesktop ? null : Drawer(child: _navigation(items)),
+      drawer: isDesktop ? null : Drawer(child: _navigation(items, selected)),
       body: Row(
         children: [
-          if (isDesktop) SizedBox(width: 264, child: _navigation(items)),
+          if (isDesktop)
+            SizedBox(width: 264, child: _navigation(items, selected)),
           Expanded(
             child: Column(
               children: [
@@ -99,7 +100,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     );
   }
 
-  Widget _navigation(List<_MenuItem> items) {
+  Widget _navigation(List<_MenuItem> items, int selectedIndex) {
     return Container(
       color: Colors.white,
       padding: const EdgeInsets.fromLTRB(16, 24, 16, 12),
@@ -117,7 +118,8 @@ class _AppShellState extends ConsumerState<AppShell> {
             child: ListView(
               children: [
                 _sectionLabel('GENERAL'),
-                for (var i = 0; i < items.length; i++) _navItem(i, items[i]),
+                for (var i = 0; i < items.length; i++)
+                  _navItem(i, items[i], selectedIndex),
               ],
             ),
           ),
@@ -150,8 +152,8 @@ class _AppShellState extends ConsumerState<AppShell> {
             )),
       );
 
-  Widget _navItem(int index, _MenuItem item) {
-    final active = index == _selected;
+  Widget _navItem(int index, _MenuItem item, int selectedIndex) {
+    final active = index == selectedIndex;
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: Material(
@@ -214,15 +216,28 @@ class _AppShellState extends ConsumerState<AppShell> {
       }
     }
 
-    add(
-      'inmuebles.consultar',
-      'Inmuebles',
-      Icons.apartment_rounded,
-      (_) => const InmueblesPage(
-        key: ValueKey('inmuebles-residente'),
-        modoAdmin: false,
-      ),
-    );
+    if (user.tienePermiso('inmuebles.gestionar')) {
+      items.add(
+        _MenuItem(
+          'Administrar inmuebles',
+          Icons.apartment_rounded,
+          (_) => const InmueblesPage(
+            key: ValueKey('inmuebles-admin'),
+            modoAdmin: true,
+          ),
+        ),
+      );
+    } else {
+      add(
+        'inmuebles.consultar',
+        'Inmuebles',
+        Icons.apartment_rounded,
+        (_) => const InmueblesPage(
+          key: ValueKey('inmuebles-residente'),
+          modoAdmin: false,
+        ),
+      );
+    }
     add('comunicados.ver', 'Comunicados', Icons.campaign_rounded);
     if (user.tienePermiso('pqr.gestionar')) {
       items.add(
@@ -258,15 +273,6 @@ class _AppShellState extends ConsumerState<AppShell> {
       'Usuarios',
       Icons.people_alt_rounded,
       (u) => UsuariosAdminPage(currentUser: u),
-    );
-    add(
-      'inmuebles.gestionar',
-      'Administrar inmuebles',
-      Icons.apartment_rounded,
-      (_) => const InmueblesPage(
-        key: ValueKey('inmuebles-admin'),
-        modoAdmin: true,
-      ),
     );
     add(
       'roles.gestionar',
@@ -318,13 +324,17 @@ class _AppShellState extends ConsumerState<AppShell> {
       ),
     );
     if (confirmed != true) return;
-    await AuthService().cerrarSesion();
-    if (!mounted) return;
-    ref.read(authSessionProvider.notifier).clear();
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const AuthScreen()),
-      (_) => false,
-    );
+    try {
+      await AuthService().cerrarSesion();
+    } finally {
+      if (mounted) {
+        ref.read(authSessionProvider.notifier).clear();
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const AuthScreen()),
+          (_) => false,
+        );
+      }
+    }
   }
 }
 
@@ -391,7 +401,7 @@ class _Dashboard extends StatelessWidget {
                   icon: Icons.verified_user_rounded,
                   title: 'Estado de cuenta',
                   value: user.activo ? 'Activa' : 'Inactiva',
-                  color: Colors.green),
+                  color: user.activo ? Colors.green : Colors.redAccent),
               _SummaryCard(
                   icon: Icons.badge_rounded,
                   title: 'Rol',

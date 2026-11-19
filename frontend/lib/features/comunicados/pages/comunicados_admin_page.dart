@@ -371,18 +371,18 @@ class _CategoriasVista extends ConsumerWidget {
                       },
                     ),
                     IconButton(
-                      tooltip: 'Eliminar',
+                      tooltip: 'Desactivar',
                       icon: const Icon(Icons.delete_outline_rounded, color: colorAlerta),
                       onPressed: () async {
                         final ok = await confirmar(context,
-                            titulo: 'Eliminar categoría',
-                            mensaje: 'Los comunicados que la usan quedarán sin categoría. Si solo quieres ocultarla, edítala y desactívala.',
-                            textoConfirmar: 'Eliminar',
+                            titulo: 'Desactivar categoría',
+                            mensaje: 'La categoría se desactivará y dejará de ofrecerse para nuevos comunicados, conservando el historial de los existentes.',
+                            textoConfirmar: 'Desactivar',
                             peligro: true);
                         if (!ok || !context.mounted) return;
                         final hecho = await ejecutarSimple(
                             context, () => ref.read(comunicadosServiceProvider).eliminarCategoria(c.id),
-                            exito: 'Categoría eliminada');
+                            exito: 'Categoría desactivada');
                         if (hecho) ref.invalidate(categoriasProvider);
                       },
                     ),

@@ -1,18 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../config/app_colors.dart';
+import '../../../providers/auth_provider.dart';
+import '../../../services/auth_service.dart';
 import '../services/modulo1_service.dart';
 
-class RolesPermisosPage extends StatefulWidget {
+class RolesPermisosPage extends ConsumerStatefulWidget {
   const RolesPermisosPage({super.key, this.service});
 
   final Modulo1Service? service;
 
   @override
-  State<RolesPermisosPage> createState() => _RolesPermisosPageState();
+  ConsumerState<RolesPermisosPage> createState() => _RolesPermisosPageState();
 }
 
-class _RolesPermisosPageState extends State<RolesPermisosPage> {
+class _RolesPermisosPageState extends ConsumerState<RolesPermisosPage> {
   late final Modulo1Service _service = widget.service ?? Modulo1Service();
 
   List<Map<String, dynamic>> _roles = const [];
@@ -67,9 +70,11 @@ class _RolesPermisosPageState extends State<RolesPermisosPage> {
   }
 
   Future<void> _guardarPermisos() async {
-    if (_roles.isEmpty) return;
-    final rol = _roles[_rolIndex];
+    if (_roles.isEmpty || _guardando) return;
+    final idxGuardado = _rolIndex;
+    final rol = _roles[idxGuardado];
     final rolId = rol['id'] as int;
+    final codigoRol = rol['codigo']?.toString() ?? '';
     setState(() => _guardando = true);
     try {
       final actualizado = await _service.asignarPermisosRol(
@@ -78,10 +83,21 @@ class _RolesPermisosPageState extends State<RolesPermisosPage> {
       );
       if (!mounted) return;
       setState(() {
-        _roles[_rolIndex] = actualizado;
+        if (idxGuardado < _roles.length) {
+          _roles[idxGuardado] = actualizado;
+        }
         _sincronizarSeleccion();
         _guardando = false;
       });
+      // Si el usuario actual tiene ese rol, refrescar su sesión/permisos en vivo.
+      final actual = ref.read(currentUserProvider);
+      if (actual != null && actual.roles.contains(codigoRol)) {
+        final perfil = await AuthService().obtenerPerfil();
+        if (perfil != null && mounted) {
+          ref.read(authSessionProvider.notifier).setUser(perfil);
+        }
+      }
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Permisos del rol ${rol['nombre']} actualizados.'),
@@ -185,12 +201,14 @@ class _RolesPermisosPageState extends State<RolesPermisosPage> {
                                 : FontWeight.w500,
                           ),
                         ),
-                        onSelected: (_) {
-                          setState(() {
-                            _rolIndex = i;
-                            _sincronizarSeleccion();
-                          });
-                        },
+                        onSelected: _guardando
+                            ? null
+                            : (_) {
+                                setState(() {
+                                  _rolIndex = i;
+                                  _sincronizarSeleccion();
+                                });
+                              },
                       ),
                   ],
                 ),
@@ -294,7 +312,7 @@ class _RolesPermisosPageState extends State<RolesPermisosPage> {
                         style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
                       subtitle: Text(perm['descripcion']?.toString() ?? ''),
-                      onChanged: esAdmin
+                      onChanged: (esAdmin || _guardando)
                           ? null
                           : (val) {
                               final code = perm['codigo']?.toString() ?? '';
@@ -316,4 +334,3 @@ class _RolesPermisosPageState extends State<RolesPermisosPage> {
     );
   }
 }
-

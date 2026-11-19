@@ -59,14 +59,14 @@ def test_registro_rechaza_clave_debil(client):
 
 def test_actualizar_perfil_solo_campos_permitidos(auth_client, usuario):
     response = auth_client.patch(
-        ME, {"nombres": "Anita", "telefono": "3001234567", "username": "otro", "activo": False},
+        ME, {"nombres": "Anita", "apellidos": "Otro", "telefono": "3001234567", "username": "otro", "activo": False},
         format="json",
     )
     assert response.status_code == 200
-    assert response.data["nombres"] == "Anita"
+    assert response.data["nombres"] == "Ana"  # nombres y apellidos no se editan desde /auth/me/
     usuario.refresh_from_db()
-    assert (usuario.nombres, usuario.telefono, usuario.username, usuario.activo) == (
-        "Anita", "3001234567", "ana", True,
+    assert (usuario.nombres, usuario.apellidos, usuario.telefono, usuario.username, usuario.activo) == (
+        "Ana", "Pérez", "3001234567", "ana", True,
     )
 
 

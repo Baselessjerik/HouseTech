@@ -239,12 +239,15 @@ class PQRRegistroSerializer(serializers.ModelSerializer):
         return desc_limpia
 
     def validate_inmueble_id(self, inmueble):
-        """Si se especifica un inmueble, verificar que el residente tenga vínculo vigente con él."""
+        """Si se especifica un inmueble, verificar que esté activo y vigente para el residente."""
         if inmueble is None:
             return None
 
+        if not inmueble.activo:
+            raise serializers.ValidationError("El inmueble seleccionado está inactivo.")
+
         usuario = self.context["request"].user
-        # Se permite si el usuario tiene relación activa con el inmueble o si es administrador
+        # Se permite si el usuario tiene relación activa con el inmueble o si es gestor/administrador
         tiene_vinculo = InmuebleUsuario.objects.filter(
             inmueble=inmueble,
             usuario=usuario,
@@ -288,9 +291,12 @@ class PQRRegistroSerializer(serializers.ModelSerializer):
         return pqr
 
     def update(self, instance, validated_data):
-        """Impide que residentes alteren la prioridad en una solicitud existente."""
+        """Impide que solicitantes o responsables no asignados alteren la prioridad."""
         usuario = self.context["request"].user
-        if not usuario.tiene_permiso("pqr.gestionar"):
+        puede_prioridad = usuario.tiene_permiso("usuarios.gestionar") or (
+            usuario.tiene_permiso("pqr.gestionar") and instance.responsable_id == usuario.pk
+        )
+        if not puede_prioridad:
             validated_data.pop("prioridad", None)
         return super().update(instance, validated_data)
 

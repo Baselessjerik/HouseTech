@@ -1,8 +1,32 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../config/app_colors.dart';
 import '../../../models/user_model.dart';
 import '../services/modulo1_service.dart';
+
+const List<String> _kTiposInmueble = [
+  'APARTAMENTO',
+  'CASA',
+  'LOCAL',
+  'PARQUEADERO',
+  'OTRO',
+];
+
+String _etiquetaTipo(String tipo) {
+  switch (tipo.toUpperCase()) {
+    case 'CASA':
+      return 'Casa';
+    case 'LOCAL':
+      return 'Local comercial';
+    case 'PARQUEADERO':
+      return 'Parqueadero';
+    case 'OTRO':
+      return 'Otro';
+    default:
+      return 'Apartamento';
+  }
+}
 
 class InmueblesPage extends StatefulWidget {
   const InmueblesPage({
@@ -23,10 +47,15 @@ class _InmueblesPageState extends State<InmueblesPage> {
   final _searchCtrl = TextEditingController();
 
   List<Map<String, dynamic>> _inmuebles = const [];
+  int _totalInmuebles = 0;
+  int _pagina = 1;
+  bool _tieneSiguiente = false;
+  bool _tieneAnterior = false;
   List<Map<String, dynamic>> _copropiedades = const [];
   bool _cargando = true;
   String? _error;
   String? _filtroTipo;
+  bool? _filtroActivo;
 
   @override
   void initState() {
@@ -40,31 +69,42 @@ class _InmueblesPageState extends State<InmueblesPage> {
     super.dispose();
   }
 
-  Future<void> _cargar() async {
+  Future<void> _cargar({bool reiniciarPagina = false}) async {
+    if (reiniciarPagina) _pagina = 1;
     setState(() {
       _cargando = true;
       _error = null;
     });
     try {
       final results = await Future.wait([
-        _service.listarInmuebles(
+        _service.listarInmueblesPaginado(
           search: _searchCtrl.text,
           tipo: _filtroTipo,
+          activo: widget.modoAdmin ? _filtroActivo : null,
           mios: !widget.modoAdmin,
+          page: _pagina,
         ),
-        if (widget.modoAdmin && _copropiedades.isEmpty)
-          _service.listarCopropiedades(),
+        if (widget.modoAdmin) _service.listarCopropiedades(),
       ]);
       if (!mounted) return;
+      final pag = results[0] as PaginaResultado<Map<String, dynamic>>;
       setState(() {
-        _inmuebles = results[0];
+        _inmuebles = pag.items;
+        _totalInmuebles = pag.total;
+        _tieneSiguiente = pag.tieneSiguiente;
+        _tieneAnterior = pag.tieneAnterior;
         if (results.length > 1) {
-          _copropiedades = results[1];
+          _copropiedades = results[1] as List<Map<String, dynamic>>;
         }
         _cargando = false;
       });
     } catch (e) {
       if (!mounted) return;
+      if (_pagina > 1 && !reiniciarPagina) {
+        _pagina = 1;
+        await _cargar(reiniciarPagina: true);
+        return;
+      }
       setState(() {
         _error = e.toString();
         _cargando = false;
@@ -102,6 +142,35 @@ class _InmueblesPageState extends State<InmueblesPage> {
   Future<void> _cambiarEstado(Map<String, dynamic> inmueble) async {
     final id = inmueble['id'] as int;
     final activo = inmueble['activo'] == true;
+    final vinculos = (inmueble['vinculos'] as List? ?? const []);
+
+    if (activo) {
+      final avisoVinculos = vinculos.isNotEmpty
+          ? '\n\nEste inmueble tiene ${vinculos.length} residente(s) vinculado(s). Su historial se conservará intacto, pero dejará de aparecer como activo.'
+          : '\n\nSu historial se conservará intacto y podrás reactivarlo cuando lo necesites.';
+      final confirmar = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Desactivar inmueble'),
+          content: Text(
+            '¿Seguro que deseas desactivar "${_tituloInmueble(inmueble)}"?$avisoVinculos',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Desactivar'),
+            ),
+          ],
+        ),
+      );
+      if (confirmar != true) return;
+    }
+
     try {
       await _service.cambiarEstadoInmueble(id, activar: !activo);
       _snack(!activo ? 'Inmueble activado.' : 'Inmueble desactivado.');
@@ -112,6 +181,11 @@ class _InmueblesPageState extends State<InmueblesPage> {
   }
 
   Future<void> _abrirVincular(Map<String, dynamic> inmueble) async {
+    if (inmueble['activo'] != true) {
+      _snack('Activa el inmueble antes de vincular nuevos residentes.',
+          error: true);
+      return;
+    }
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => _VincularResidenteDialog(
@@ -125,11 +199,39 @@ class _InmueblesPageState extends State<InmueblesPage> {
     }
   }
 
-  Future<void> _desvincular(int inmuebleId, int vinculoId) async {
+  Future<void> _desvincular(
+    int inmuebleId,
+    Map<String, dynamic> vinculo,
+  ) async {
+    final nombre = vinculo['usuario_nombre']?.toString() ?? 'este usuario';
+    final relacion = vinculo['tipo_relacion']?.toString() ?? '';
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Finalizar vínculo'),
+        content: Text(
+          '¿Deseas finalizar el vínculo de $nombre ($relacion)? '
+          'No se borrará el registro: quedará guardado con fecha de finalización para trazabilidad.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Finalizar vínculo'),
+          ),
+        ],
+      ),
+    );
+    if (confirmar != true) return;
+
     try {
       await _service.desvincularUsuarioInmueble(
         inmuebleId,
-        vinculoId: vinculoId,
+        vinculoId: vinculo['id'] as int,
       );
       _snack('Vínculo finalizado.');
       await _cargar();
@@ -142,15 +244,28 @@ class _InmueblesPageState extends State<InmueblesPage> {
     final tipo = (inm['tipo'] ?? 'APARTAMENTO').toString().toUpperCase();
     final numero = (inm['numero'] ?? '').toString();
     final torre = (inm['torre_bloque'] ?? '').toString().trim();
-    if (tipo == 'CASA') {
-      return torre.isNotEmpty ? 'Casa $numero · Manzana $torre' : 'Casa $numero';
+    switch (tipo) {
+      case 'CASA':
+        return torre.isNotEmpty
+            ? 'Casa $numero · Manzana $torre'
+            : 'Casa $numero';
+      case 'LOCAL':
+        return torre.isNotEmpty
+            ? 'Local $numero · $torre'
+            : 'Local $numero';
+      case 'PARQUEADERO':
+        return torre.isNotEmpty
+            ? 'Parqueadero $numero · $torre'
+            : 'Parqueadero $numero';
+      case 'OTRO':
+        return torre.isNotEmpty
+            ? 'Unidad $numero · $torre'
+            : 'Unidad $numero';
+      default:
+        return torre.isNotEmpty
+            ? 'Apartamento $numero · Torre $torre'
+            : 'Apartamento $numero';
     }
-    if (tipo == 'LOCAL') {
-      return 'Local $numero';
-    }
-    return torre.isNotEmpty
-        ? 'Apartamento $numero · Torre $torre'
-        : 'Apartamento $numero';
   }
 
   IconData _iconoPorTipo(String tipo) {
@@ -159,6 +274,10 @@ class _InmueblesPageState extends State<InmueblesPage> {
         return Icons.home_work_outlined;
       case 'LOCAL':
         return Icons.storefront_outlined;
+      case 'PARQUEADERO':
+        return Icons.local_parking_rounded;
+      case 'OTRO':
+        return Icons.meeting_room_outlined;
       default:
         return Icons.apartment_rounded;
     }
@@ -202,8 +321,8 @@ class _InmueblesPageState extends State<InmueblesPage> {
                       const SizedBox(height: 4),
                       Text(
                         widget.modoAdmin
-                            ? 'Registra casas o apartamentos y vincula residentes o propietarios.'
-                            : 'Consulta las viviendas asociadas a tu cuenta.',
+                            ? 'Registra unidades, gestiona su estado (sin borrado físico) y vincula titulares.'
+                            : 'Consulta las viviendas activas asociadas a tu cuenta.',
                         style: const TextStyle(
                           color: Color(0xFF64748B),
                           fontSize: 13,
@@ -226,16 +345,33 @@ class _InmueblesPageState extends State<InmueblesPage> {
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   SizedBox(
-                    width: 300,
+                    width: 280,
                     child: TextField(
                       controller: _searchCtrl,
-                      onSubmitted: (_) => _cargar(),
+                      onChanged: (_) => setState(() {}),
+                      onSubmitted: (_) => _cargar(reiniciarPagina: true),
                       decoration: InputDecoration(
-                        hintText: 'Buscar por número o torre/manzana...',
+                        hintText: 'Buscar por código, número o torre...',
                         prefixIcon: const Icon(Icons.search_rounded, size: 18),
-                        suffixIcon: IconButton(
-                          icon: const Icon(Icons.arrow_forward_rounded, size: 18),
-                          onPressed: _cargar,
+                        suffixIcon: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (_searchCtrl.text.isNotEmpty)
+                              IconButton(
+                                tooltip: 'Limpiar',
+                                icon: const Icon(Icons.clear_rounded, size: 18),
+                                onPressed: () {
+                                  _searchCtrl.clear();
+                                  _cargar(reiniciarPagina: true);
+                                },
+                              ),
+                            IconButton(
+                              tooltip: 'Buscar',
+                              icon: const Icon(Icons.arrow_forward_rounded,
+                                  size: 18),
+                              onPressed: () => _cargar(reiniciarPagina: true),
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -251,20 +387,49 @@ class _InmueblesPageState extends State<InmueblesPage> {
                       child: DropdownButton<String?>(
                         value: _filtroTipo,
                         hint: const Text('Tipo: Todos'),
-                        items: const [
-                          DropdownMenuItem(value: null, child: Text('Tipo: Todos')),
-                          DropdownMenuItem(
-                              value: 'APARTAMENTO', child: Text('Apartamentos')),
-                          DropdownMenuItem(value: 'CASA', child: Text('Casas')),
-                          DropdownMenuItem(value: 'LOCAL', child: Text('Locales')),
+                        items: [
+                          const DropdownMenuItem(
+                              value: null, child: Text('Tipo: Todos')),
+                          for (final t in _kTiposInmueble)
+                            DropdownMenuItem(
+                              value: t,
+                              child: Text(_etiquetaTipo(t)),
+                            ),
                         ],
                         onChanged: (v) {
                           setState(() => _filtroTipo = v);
-                          _cargar();
+                          _cargar(reiniciarPagina: true);
                         },
                       ),
                     ),
                   ),
+                  if (widget.modoAdmin)
+                    DropdownButtonHideUnderline(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFCBD5E1)),
+                        ),
+                        child: DropdownButton<bool?>(
+                          value: _filtroActivo,
+                          hint: const Text('Estado: Todos'),
+                          items: const [
+                            DropdownMenuItem(
+                                value: null, child: Text('Estado: Todos')),
+                            DropdownMenuItem(
+                                value: true, child: Text('Solo activos')),
+                            DropdownMenuItem(
+                                value: false, child: Text('Solo inactivos')),
+                          ],
+                          onChanged: (v) {
+                            setState(() => _filtroActivo = v);
+                            _cargar(reiniciarPagina: true);
+                          },
+                        ),
+                      ),
+                    ),
                   OutlinedButton.icon(
                     onPressed: _cargar,
                     icon: const Icon(Icons.refresh_rounded, size: 18),
@@ -324,14 +489,14 @@ class _InmueblesPageState extends State<InmueblesPage> {
                 Text(
                   widget.modoAdmin
                       ? 'No se encontraron inmuebles registrados.'
-                      : 'Aún no tienes inmuebles vinculados a tu cuenta.',
+                      : 'Aún no tienes inmuebles activos vinculados a tu cuenta.',
                   style: const TextStyle(
                       fontSize: 15, fontWeight: FontWeight.w600),
                 ),
               ],
             ),
           )
-        else
+        else ...[
           LayoutBuilder(
             builder: (context, constraints) {
               final dosColumnas = constraints.maxWidth >= 720;
@@ -352,6 +517,42 @@ class _InmueblesPageState extends State<InmueblesPage> {
               );
             },
           ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Mostrando ${_inmuebles.length} de $_totalInmuebles inmuebles · Página $_pagina',
+                style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+              ),
+              Row(
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: _tieneAnterior
+                        ? () {
+                            setState(() => _pagina--);
+                            _cargar();
+                          }
+                        : null,
+                    icon: const Icon(Icons.chevron_left_rounded, size: 18),
+                    label: const Text('Anterior'),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    onPressed: _tieneSiguiente
+                        ? () {
+                            setState(() => _pagina++);
+                            _cargar();
+                          }
+                        : null,
+                    icon: const Icon(Icons.chevron_right_rounded, size: 18),
+                    label: const Text('Siguiente'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }
@@ -361,17 +562,21 @@ class _InmueblesPageState extends State<InmueblesPage> {
     final activo = inm['activo'] == true;
     final tipo = (inm['tipo'] ?? 'APARTAMENTO').toString();
     final piso = inm['piso'];
+    final codigo = (inm['codigo_interno'] ?? '').toString();
     final copropiedad =
         (inm['copropiedad_nombre'] ?? 'Conjunto Residencial').toString();
-    final vinculos =
-        (inm['vinculos'] as List? ?? const []).whereType<Map<String, dynamic>>().toList();
+    final vinculos = (inm['vinculos'] as List? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .toList();
 
     return Container(
       padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        border: Border.all(
+          color: activo ? const Color(0xFFE2E8F0) : const Color(0xFFFECACA),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -406,9 +611,12 @@ class _InmueblesPageState extends State<InmueblesPage> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      piso != null && tipo.toUpperCase() != 'CASA'
-                          ? '$copropiedad · Piso $piso'
-                          : copropiedad,
+                      [
+                        copropiedad,
+                        if (piso != null && tipo.toUpperCase() != 'CASA')
+                          'Piso $piso',
+                        if (codigo.isNotEmpty) codigo,
+                      ].join(' · '),
                       style: const TextStyle(
                         fontSize: 13,
                         color: Color(0xFF64748B),
@@ -487,11 +695,14 @@ class _InmueblesPageState extends State<InmueblesPage> {
                         if (widget.modoAdmin) ...[
                           const SizedBox(width: 6),
                           InkWell(
-                            onTap: () => _desvincular(id, v['id'] as int),
-                            child: const Icon(
-                              Icons.close_rounded,
-                              size: 15,
-                              color: Colors.redAccent,
+                            onTap: () => _desvincular(id, v),
+                            child: const Tooltip(
+                              message: 'Finalizar vínculo',
+                              child: Icon(
+                                Icons.close_rounded,
+                                size: 15,
+                                color: Colors.redAccent,
+                              ),
                             ),
                           ),
                         ],
@@ -502,13 +713,20 @@ class _InmueblesPageState extends State<InmueblesPage> {
             ),
           if (widget.modoAdmin) ...[
             const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
+            Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 4,
+              runSpacing: 4,
               children: [
-                TextButton.icon(
-                  onPressed: () => _abrirVincular(inm),
-                  icon: const Icon(Icons.person_add_alt_1_outlined, size: 17),
-                  label: const Text('Vincular'),
+                Tooltip(
+                  message: activo
+                      ? 'Vincular usuario'
+                      : 'Activa el inmueble para vincular usuarios',
+                  child: TextButton.icon(
+                    onPressed: activo ? () => _abrirVincular(inm) : null,
+                    icon: const Icon(Icons.person_add_alt_1_outlined, size: 17),
+                    label: const Text('Vincular'),
+                  ),
                 ),
                 TextButton.icon(
                   onPressed: () => _abrirFormulario(inmueble: inm),
@@ -568,9 +786,14 @@ class _InmuebleFormDialogState extends State<_InmuebleFormDialog> {
   void initState() {
     super.initState();
     final i = widget.inmueble;
-    _tipo = i?['tipo']?.toString() ?? 'CASA';
-    _copropiedadId = i?['copropiedad'] as int? ??
-        (widget.copropiedades.isNotEmpty
+    final rawTipo = i?['tipo']?.toString().toUpperCase() ?? 'CASA';
+    _tipo = _kTiposInmueble.contains(rawTipo) ? rawTipo : 'OTRO';
+    final idsDisponibles =
+        widget.copropiedades.map((c) => c['id'] as int).toSet();
+    final rawCopropId = i?['copropiedad'] as int?;
+    _copropiedadId = (rawCopropId != null && idsDisponibles.contains(rawCopropId))
+        ? rawCopropId
+        : (widget.copropiedades.isNotEmpty
             ? widget.copropiedades.first['id'] as int?
             : null);
     _torreCtrl =
@@ -594,6 +817,7 @@ class _InmuebleFormDialogState extends State<_InmuebleFormDialog> {
       _error = null;
     });
     try {
+      final pisoTxt = _pisoCtrl.text.trim();
       final datos = <String, dynamic>{
         'tipo': _tipo,
         'torre_bloque': _torreCtrl.text.trim().isEmpty
@@ -601,9 +825,7 @@ class _InmuebleFormDialogState extends State<_InmuebleFormDialog> {
             : _torreCtrl.text.trim(),
         'piso': _tipo == 'CASA'
             ? null
-            : (_pisoCtrl.text.trim().isEmpty
-                ? null
-                : int.tryParse(_pisoCtrl.text.trim())),
+            : (pisoTxt.isEmpty ? null : int.parse(pisoTxt)),
         'numero': _numeroCtrl.text.trim(),
         if (_copropiedadId != null) 'copropiedad': _copropiedadId,
       };
@@ -683,12 +905,12 @@ class _InmuebleFormDialogState extends State<_InmuebleFormDialog> {
                     labelText: 'Tipo de inmueble',
                     prefixIcon: Icon(Icons.home_work_outlined),
                   ),
-                  items: const [
-                    DropdownMenuItem(value: 'CASA', child: Text('Casa')),
-                    DropdownMenuItem(
-                        value: 'APARTAMENTO', child: Text('Apartamento')),
-                    DropdownMenuItem(
-                        value: 'LOCAL', child: Text('Local comercial')),
+                  items: [
+                    for (final t in _kTiposInmueble)
+                      DropdownMenuItem(
+                        value: t,
+                        child: Text(_etiquetaTipo(t)),
+                      ),
                   ],
                   onChanged: (v) => setState(() => _tipo = v ?? 'CASA'),
                 ),
@@ -701,7 +923,7 @@ class _InmuebleFormDialogState extends State<_InmuebleFormDialog> {
                         decoration: InputDecoration(
                           labelText: esCasa
                               ? 'Manzana / Sector (opcional)'
-                              : 'Torre / Bloque',
+                              : 'Torre / Bloque / Zona',
                         ),
                       ),
                     ),
@@ -724,11 +946,26 @@ class _InmuebleFormDialogState extends State<_InmuebleFormDialog> {
                   const SizedBox(height: 14),
                   TextFormField(
                     controller: _pisoCtrl,
-                    keyboardType: TextInputType.number,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      signed: true,
+                    ),
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(RegExp(r'^-?\d*')),
+                    ],
                     decoration: const InputDecoration(
-                      labelText: 'Piso',
+                      labelText: 'Piso (opcional, ej. 1 o -1 para sótano)',
                       prefixIcon: Icon(Icons.layers_outlined),
                     ),
+                    validator: (v) {
+                      final txt = v?.trim() ?? '';
+                      if (txt.isEmpty) return null;
+                      final num = int.tryParse(txt);
+                      if (num == null) return 'Ingresa un número entero válido';
+                      if (num < -5 || num > 200) {
+                        return 'El piso debe estar entre -5 y 200';
+                      }
+                      return null;
+                    },
                   ),
                 ],
               ],
@@ -765,6 +1002,7 @@ class _VincularResidenteDialog extends StatefulWidget {
 }
 
 class _VincularResidenteDialogState extends State<_VincularResidenteDialog> {
+  final _busquedaCtrl = TextEditingController();
   List<UserModel> _usuarios = const [];
   int? _usuarioId;
   String _relacion = 'RESIDENTE';
@@ -778,9 +1016,29 @@ class _VincularResidenteDialogState extends State<_VincularResidenteDialog> {
     _cargarUsuarios();
   }
 
+  @override
+  void dispose() {
+    _busquedaCtrl.dispose();
+    super.dispose();
+  }
+
+  List<UserModel> get _usuariosFiltrados {
+    final q = _busquedaCtrl.text.trim().toLowerCase();
+    if (q.isEmpty) return _usuarios;
+    return _usuarios
+        .where((u) =>
+            u.nombreCompleto.toLowerCase().contains(q) ||
+            u.username.toLowerCase().contains(q) ||
+            u.numeroDocumento.toLowerCase().contains(q))
+        .toList();
+  }
+
   Future<void> _cargarUsuarios() async {
     try {
-      final lista = await widget.service.listarUsuarios(activo: true);
+      final lista = await widget.service.listarUsuarios(
+        activo: true,
+        todasLasPaginas: true,
+      );
       if (!mounted) return;
       setState(() {
         _usuarios = lista;
@@ -813,7 +1071,7 @@ class _VincularResidenteDialogState extends State<_VincularResidenteDialog> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        _error = e.toString().replaceFirst('Exception: ', '');
         _guardando = false;
       });
     }
@@ -821,59 +1079,97 @@ class _VincularResidenteDialogState extends State<_VincularResidenteDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final filtrados = _usuariosFiltrados;
+    final seleccionadoValido =
+        filtrados.any((u) => u.id == _usuarioId) ? _usuarioId : (filtrados.isNotEmpty ? filtrados.first.id : null);
+    if (seleccionadoValido != _usuarioId && !_cargando) {
+      _usuarioId = seleccionadoValido;
+    }
+
     return AlertDialog(
       title: Text(
         'Vincular residente a ${widget.inmueble['numero']}',
         style: const TextStyle(fontWeight: FontWeight.w800),
       ),
       content: SizedBox(
-        width: 440,
+        width: 460,
         child: _cargando
             ? const Padding(
                 padding: EdgeInsets.all(24),
                 child: Center(child: CircularProgressIndicator()),
               )
-            : Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (_error != null) ...[
-                    Text(_error!, style: const TextStyle(color: Colors.red)),
-                    const SizedBox(height: 10),
-                  ],
-                  DropdownButtonFormField<int>(
-                    initialValue: _usuarioId,
-                    decoration: const InputDecoration(
-                      labelText: 'Seleccionar usuario',
-                      prefixIcon: Icon(Icons.person_outline),
-                    ),
-                    items: [
-                      for (final u in _usuarios)
-                        DropdownMenuItem(
-                          value: u.id,
-                          child: Text('${u.nombreCompleto} (@${u.username})'),
+            : SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_error != null) ...[
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade50,
+                          borderRadius: BorderRadius.circular(8),
                         ),
+                        child: Text(
+                          _error!,
+                          style: TextStyle(
+                              color: Colors.red.shade800, fontSize: 12),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
                     ],
-                    onChanged: (v) => setState(() => _usuarioId = v),
-                  ),
-                  const SizedBox(height: 14),
-                  DropdownButtonFormField<String>(
-                    initialValue: _relacion,
-                    decoration: const InputDecoration(
-                      labelText: 'Tipo de relación',
-                      prefixIcon: Icon(Icons.badge_outlined),
+                    TextField(
+                      controller: _busquedaCtrl,
+                      onChanged: (_) => setState(() {}),
+                      decoration: const InputDecoration(
+                        labelText:
+                            'Filtrar usuario por nombre, usuario o cédula',
+                        prefixIcon: Icon(Icons.search_rounded),
+                      ),
                     ),
-                    items: const [
-                      DropdownMenuItem(
-                          value: 'PROPIETARIO', child: Text('Propietario')),
-                      DropdownMenuItem(
-                          value: 'ARRENDATARIO', child: Text('Arrendatario')),
-                      DropdownMenuItem(
-                          value: 'RESIDENTE', child: Text('Residente')),
-                    ],
-                    onChanged: (v) =>
-                        setState(() => _relacion = v ?? 'RESIDENTE'),
-                  ),
-                ],
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<int>(
+                      key: ValueKey('dd-${filtrados.length}-$seleccionadoValido'),
+                      isExpanded: true,
+                      initialValue: seleccionadoValido,
+                      decoration: const InputDecoration(
+                        labelText: 'Seleccionar usuario',
+                        prefixIcon: Icon(Icons.person_outline),
+                      ),
+                      items: [
+                        for (final u in filtrados)
+                          DropdownMenuItem(
+                            value: u.id,
+                            child: Text(
+                              '${u.nombreCompleto} (@${u.username})',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: (v) => setState(() => _usuarioId = v),
+                    ),
+                    const SizedBox(height: 14),
+                    DropdownButtonFormField<String>(
+                      isExpanded: true,
+                      initialValue: _relacion,
+                      decoration: const InputDecoration(
+                        labelText: 'Tipo de relación',
+                        prefixIcon: Icon(Icons.badge_outlined),
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                            value: 'PROPIETARIO', child: Text('Propietario')),
+                        DropdownMenuItem(
+                            value: 'ARRENDATARIO',
+                            child: Text('Arrendatario')),
+                        DropdownMenuItem(
+                            value: 'RESIDENTE', child: Text('Residente')),
+                      ],
+                      onChanged: (v) =>
+                          setState(() => _relacion = v ?? 'RESIDENTE'),
+                    ),
+                  ],
+                ),
               ),
       ),
       actions: [
@@ -882,7 +1178,10 @@ class _VincularResidenteDialogState extends State<_VincularResidenteDialog> {
           child: const Text('Cancelar'),
         ),
         FilledButton(
-          onPressed: (_guardando || _cargando) ? null : _vincular,
+          onPressed:
+              (_guardando || _cargando || seleccionadoValido == null)
+                  ? null
+                  : _vincular,
           child: Text(_guardando ? 'Vinculando...' : 'Vincular'),
         ),
       ],

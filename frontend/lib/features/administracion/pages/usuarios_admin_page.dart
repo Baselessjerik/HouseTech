@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../config/app_colors.dart';
 import '../../../models/user_model.dart';
+import '../../../providers/auth_provider.dart';
 import '../services/modulo1_service.dart';
 import 'mi_perfil_page.dart';
 
-class UsuariosAdminPage extends StatefulWidget {
+class UsuariosAdminPage extends ConsumerStatefulWidget {
   const UsuariosAdminPage({
     super.key,
     required this.currentUser,
@@ -16,14 +18,18 @@ class UsuariosAdminPage extends StatefulWidget {
   final Modulo1Service? service;
 
   @override
-  State<UsuariosAdminPage> createState() => _UsuariosAdminPageState();
+  ConsumerState<UsuariosAdminPage> createState() => _UsuariosAdminPageState();
 }
 
-class _UsuariosAdminPageState extends State<UsuariosAdminPage> {
+class _UsuariosAdminPageState extends ConsumerState<UsuariosAdminPage> {
   late final Modulo1Service _service = widget.service ?? Modulo1Service();
   final _searchCtrl = TextEditingController();
 
   List<UserModel> _usuarios = const [];
+  int _totalUsuarios = 0;
+  int _pagina = 1;
+  bool _tieneSiguiente = false;
+  bool _tieneAnterior = false;
   List<Map<String, dynamic>> _rolesCatalogo = const [];
   bool _cargando = true;
   String? _error;
@@ -42,25 +48,31 @@ class _UsuariosAdminPageState extends State<UsuariosAdminPage> {
     super.dispose();
   }
 
-  Future<void> _cargar() async {
+  Future<void> _cargar({bool reiniciarPagina = false}) async {
+    if (reiniciarPagina) _pagina = 1;
     setState(() {
       _cargando = true;
       _error = null;
     });
     try {
       final results = await Future.wait([
-        _service.listarUsuarios(
+        _service.listarUsuariosPaginado(
           search: _searchCtrl.text,
           activo: _filtroActivo,
           rol: _filtroRol,
+          page: _pagina,
         ),
         if (_rolesCatalogo.isEmpty &&
             widget.currentUser.tienePermiso('roles.gestionar'))
           _service.listarRoles(),
       ]);
       if (!mounted) return;
+      final pag = results[0] as PaginaResultado<UserModel>;
       setState(() {
-        _usuarios = results[0] as List<UserModel>;
+        _usuarios = pag.items;
+        _totalUsuarios = pag.total;
+        _tieneSiguiente = pag.tieneSiguiente;
+        _tieneAnterior = pag.tieneAnterior;
         if (results.length > 1) {
           _rolesCatalogo = results[1] as List<Map<String, dynamic>>;
         }
@@ -68,6 +80,11 @@ class _UsuariosAdminPageState extends State<UsuariosAdminPage> {
       });
     } catch (e) {
       if (!mounted) return;
+      if (_pagina > 1 && !reiniciarPagina) {
+        _pagina = 1;
+        await _cargar(reiniciarPagina: true);
+        return;
+      }
       setState(() {
         _error = e.toString();
         _cargando = false;
@@ -100,18 +117,21 @@ class _UsuariosAdminPageState extends State<UsuariosAdminPage> {
   }
 
   Future<void> _abrirModalEditar(UserModel u) async {
-    final editado = await showDialog<bool>(
+    final editado = await showDialog<UserModel>(
       context: context,
       builder: (_) => _EditarUsuarioDialog(service: _service, usuario: u),
     );
-    if (editado == true) {
+    if (editado != null) {
+      if (editado.id == widget.currentUser.id) {
+        ref.read(authSessionProvider.notifier).setUser(editado);
+      }
       _snack('Datos del usuario actualizados.');
       await _cargar();
     }
   }
 
   Future<void> _abrirModalRoles(UserModel u) async {
-    final actualizado = await showDialog<bool>(
+    final actualizado = await showDialog<UserModel>(
       context: context,
       builder: (_) => _AsignarRolesDialog(
         service: _service,
@@ -119,7 +139,10 @@ class _UsuariosAdminPageState extends State<UsuariosAdminPage> {
         rolesDisponibles: _codigosRolesDisponibles(),
       ),
     );
-    if (actualizado == true) {
+    if (actualizado != null) {
+      if (actualizado.id == widget.currentUser.id) {
+        ref.read(authSessionProvider.notifier).setUser(actualizado);
+      }
       _snack('Roles actualizados correctamente.');
       await _cargar();
     }
@@ -127,6 +150,30 @@ class _UsuariosAdminPageState extends State<UsuariosAdminPage> {
 
   Future<void> _alternarEstado(UserModel u) async {
     final activar = !u.activo;
+    if (!activar) {
+      final confirmar = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Desactivar usuario'),
+          content: Text(
+            '¿Seguro que deseas desactivar a ${u.nombreCompleto} (@${u.username})? '
+            'No perderá su historial, pero no podrá iniciar sesión hasta reactivarlo.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Desactivar'),
+            ),
+          ],
+        ),
+      );
+      if (confirmar != true) return;
+    }
     try {
       await _service.cambiarEstadoUsuario(u.id, activar: activar);
       _snack(activar
@@ -203,7 +250,8 @@ class _UsuariosAdminPageState extends State<UsuariosAdminPage> {
                       width: 320,
                       child: TextField(
                         controller: _searchCtrl,
-                        onSubmitted: (_) => _cargar(),
+                        onChanged: (_) => setState(() {}),
+                        onSubmitted: (_) => _cargar(reiniciarPagina: true),
                         decoration: InputDecoration(
                           hintText: 'Buscar por nombre, usuario, doc o correo...',
                           prefixIcon: const Icon(Icons.search),
@@ -214,7 +262,7 @@ class _UsuariosAdminPageState extends State<UsuariosAdminPage> {
                                   icon: const Icon(Icons.clear, size: 18),
                                   onPressed: () {
                                     _searchCtrl.clear();
-                                    _cargar();
+                                    _cargar(reiniciarPagina: true);
                                   },
                                 )
                               : null,
@@ -226,7 +274,7 @@ class _UsuariosAdminPageState extends State<UsuariosAdminPage> {
                       hint: const Text('Estado: Todos'),
                       onChanged: (v) {
                         setState(() => _filtroActivo = v);
-                        _cargar();
+                        _cargar(reiniciarPagina: true);
                       },
                       items: const [
                         DropdownMenuItem(
@@ -242,7 +290,7 @@ class _UsuariosAdminPageState extends State<UsuariosAdminPage> {
                       hint: const Text('Rol: Todos'),
                       onChanged: (v) {
                         setState(() => _filtroRol = v);
-                        _cargar();
+                        _cargar(reiniciarPagina: true);
                       },
                       items: [
                         const DropdownMenuItem(
@@ -406,8 +454,10 @@ class _UsuariosAdminPageState extends State<UsuariosAdminPage> {
                               const Divider(
                                   height: 1, color: Color(0xFFF1F5F9)),
                               const SizedBox(height: 8),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.end,
+                              Wrap(
+                                alignment: WrapAlignment.end,
+                                spacing: 4,
+                                runSpacing: 4,
                                 children: [
                                   TextButton.icon(
                                     onPressed: () => _abrirModalEditar(u),
@@ -452,10 +502,47 @@ class _UsuariosAdminPageState extends State<UsuariosAdminPage> {
                         ),
                       ),
                     ),
-                ],
+                  ],
               );
             },
           ),
+        if (!_cargando && _error == null && _totalUsuarios > 0) ...[
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Mostrando ${_usuarios.length} de $_totalUsuarios usuarios · Página $_pagina',
+                style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+              ),
+              Row(
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: _tieneAnterior
+                        ? () {
+                            setState(() => _pagina--);
+                            _cargar();
+                          }
+                        : null,
+                    icon: const Icon(Icons.chevron_left_rounded, size: 18),
+                    label: const Text('Anterior'),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    onPressed: _tieneSiguiente
+                        ? () {
+                            setState(() => _pagina++);
+                            _cargar();
+                          }
+                        : null,
+                    icon: const Icon(Icons.chevron_right_rounded, size: 18),
+                    label: const Text('Siguiente'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }
@@ -648,9 +735,12 @@ class _CrearUsuarioDialogState extends State<_CrearUsuarioDialog> {
                     labelText: 'Correo electrónico',
                     border: OutlineInputBorder(),
                   ),
-                  validator: (v) => (v == null || !v.contains('@'))
-                      ? 'Correo inválido'
-                      : null,
+                  validator: (v) {
+                    final txt = v?.trim() ?? '';
+                    return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(txt)
+                        ? null
+                        : 'Correo inválido';
+                  },
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
@@ -750,14 +840,14 @@ class _EditarUsuarioDialogState extends State<_EditarUsuarioDialog> {
       _error = null;
     });
     try {
-      await widget.service.actualizarUsuario(widget.usuario.id, {
+      final actualizado = await widget.service.actualizarUsuario(widget.usuario.id, {
         'nombres': _nombresCtrl.text.trim(),
         'apellidos': _apellidosCtrl.text.trim(),
         'email': _emailCtrl.text.trim(),
         'telefono': _telefonoCtrl.text.trim(),
       });
       if (!mounted) return;
-      Navigator.pop(context, true);
+      Navigator.pop(context, actualizado);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -773,52 +863,60 @@ class _EditarUsuarioDialogState extends State<_EditarUsuarioDialog> {
       title: Text('Editar usuario @${widget.usuario.username}'),
       content: SizedBox(
         width: 440,
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (_error != null) ...[
-                Text(_error!, style: const TextStyle(color: Colors.redAccent)),
-                const SizedBox(height: 10),
+        child: SingleChildScrollView(
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_error != null) ...[
+                  Text(_error!,
+                      style: const TextStyle(color: Colors.redAccent)),
+                  const SizedBox(height: 10),
+                ],
+                TextFormField(
+                  controller: _nombresCtrl,
+                  decoration: const InputDecoration(
+                      labelText: 'Nombres', border: OutlineInputBorder()),
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? 'Requerido' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _apellidosCtrl,
+                  decoration: const InputDecoration(
+                      labelText: 'Apellidos', border: OutlineInputBorder()),
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? 'Requerido' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _emailCtrl,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(
+                      labelText: 'Correo electrónico',
+                      border: OutlineInputBorder()),
+                  validator: (v) {
+                    final txt = v?.trim() ?? '';
+                    return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(txt)
+                        ? null
+                        : 'Correo inválido';
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _telefonoCtrl,
+                  decoration: const InputDecoration(
+                      labelText: 'Teléfono', border: OutlineInputBorder()),
+                ),
               ],
-              TextFormField(
-                controller: _nombresCtrl,
-                decoration: const InputDecoration(
-                    labelText: 'Nombres', border: OutlineInputBorder()),
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Requerido' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _apellidosCtrl,
-                decoration: const InputDecoration(
-                    labelText: 'Apellidos', border: OutlineInputBorder()),
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Requerido' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _emailCtrl,
-                decoration: const InputDecoration(
-                    labelText: 'Correo electrónico',
-                    border: OutlineInputBorder()),
-                validator: (v) =>
-                    (v == null || !v.contains('@')) ? 'Correo inválido' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _telefonoCtrl,
-                decoration: const InputDecoration(
-                    labelText: 'Teléfono', border: OutlineInputBorder()),
-              ),
-            ],
+            ),
           ),
         ),
       ),
       actions: [
         TextButton(
-          onPressed: _guardando ? null : () => Navigator.pop(context, false),
+          onPressed: _guardando ? null : () => Navigator.pop(context),
           child: const Text('Cancelar'),
         ),
         FilledButton(
@@ -860,12 +958,12 @@ class _AsignarRolesDialogState extends State<_AsignarRolesDialog> {
       _error = null;
     });
     try {
-      await widget.service.asignarRolesUsuario(
+      final actualizado = await widget.service.asignarRolesUsuario(
         widget.usuario.id,
         _seleccionados.toList(),
       );
       if (!mounted) return;
-      Navigator.pop(context, true);
+      Navigator.pop(context, actualizado);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -881,35 +979,39 @@ class _AsignarRolesDialogState extends State<_AsignarRolesDialog> {
       title: Text('Roles de ${widget.usuario.nombreCompleto}'),
       content: SizedBox(
         width: 380,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (_error != null) ...[
-              Text(_error!, style: const TextStyle(color: Colors.redAccent)),
-              const SizedBox(height: 10),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (_error != null) ...[
+                Text(_error!, style: const TextStyle(color: Colors.redAccent)),
+                const SizedBox(height: 10),
+              ],
+              for (final rol in widget.rolesDisponibles)
+                CheckboxListTile(
+                  value: _seleccionados.contains(rol),
+                  title: Text(UserModel.nombreRol(rol)),
+                  subtitle: Text(rol),
+                  onChanged: _guardando
+                      ? null
+                      : (v) {
+                          setState(() {
+                            if (v == true) {
+                              _seleccionados.add(rol);
+                            } else {
+                              _seleccionados.remove(rol);
+                            }
+                          });
+                        },
+                ),
             ],
-            for (final rol in widget.rolesDisponibles)
-              CheckboxListTile(
-                value: _seleccionados.contains(rol),
-                title: Text(UserModel.nombreRol(rol)),
-                subtitle: Text(rol),
-                onChanged: (v) {
-                  setState(() {
-                    if (v == true) {
-                      _seleccionados.add(rol);
-                    } else {
-                      _seleccionados.remove(rol);
-                    }
-                  });
-                },
-              ),
-          ],
+          ),
         ),
       ),
       actions: [
         TextButton(
-          onPressed: _guardando ? null : () => Navigator.pop(context, false),
+          onPressed: _guardando ? null : () => Navigator.pop(context),
           child: const Text('Cancelar'),
         ),
         FilledButton(

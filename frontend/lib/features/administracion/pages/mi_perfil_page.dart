@@ -34,6 +34,7 @@ class UserAvatarWidget extends StatelessWidget {
         radius: radius,
         backgroundColor: AppColors.oceanBlue.withAlpha(30),
         backgroundImage: MemoryImage(bytes),
+        onBackgroundImageError: (_, __) {},
       );
     }
     return CircleAvatar(
@@ -648,54 +649,58 @@ class _EditarContactoDialogState extends State<_EditarContactoDialog> {
       ),
       content: SizedBox(
         width: 440,
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Puedes actualizar tu correo electrónico y número de teléfono. El nombre titular y documento son permanentes.',
-                style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
-              ),
-              const SizedBox(height: 18),
-              if (_error != null) ...[
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.red.shade50,
-                    borderRadius: BorderRadius.circular(8),
+        child: SingleChildScrollView(
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Puedes actualizar tu correo electrónico y número de teléfono. El nombre titular y documento son permanentes.',
+                  style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+                ),
+                const SizedBox(height: 18),
+                if (_error != null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      _error!,
+                      style: TextStyle(color: Colors.red.shade800, fontSize: 12),
+                    ),
                   ),
-                  child: Text(
-                    _error!,
-                    style: TextStyle(color: Colors.red.shade800, fontSize: 12),
+                  const SizedBox(height: 12),
+                ],
+                TextFormField(
+                  controller: _emailCtrl,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(
+                    labelText: 'Correo electrónico',
+                    prefixIcon: Icon(Icons.email_outlined),
+                  ),
+                  validator: (v) {
+                    final txt = v?.trim() ?? '';
+                    if (txt.isEmpty) return 'Ingresa tu correo';
+                    if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(txt)) {
+                      return 'Correo inválido';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: _telefonoCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Teléfono / Celular',
+                    prefixIcon: Icon(Icons.phone_outlined),
                   ),
                 ),
-                const SizedBox(height: 12),
               ],
-              TextFormField(
-                controller: _emailCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Correo electrónico',
-                  prefixIcon: Icon(Icons.email_outlined),
-                ),
-                validator: (v) {
-                  if (v == null || v.trim().isEmpty) {
-                    return 'Ingresa tu correo';
-                  }
-                  if (!v.contains('@')) return 'Correo inválido';
-                  return null;
-                },
-              ),
-              const SizedBox(height: 14),
-              TextFormField(
-                controller: _telefonoCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Teléfono / Celular',
-                  prefixIcon: Icon(Icons.phone_outlined),
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -777,86 +782,93 @@ class _CambiarPasswordDialogState extends State<_CambiarPasswordDialog> {
       ),
       content: SizedBox(
         width: 440,
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Tu nueva contraseña debe tener mínimo 8 caracteres e incluir letras y números.',
-                style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
-              ),
-              const SizedBox(height: 18),
-              if (_error != null) ...[
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.red.shade50,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    _error!,
-                    style: TextStyle(color: Colors.red.shade800, fontSize: 12),
-                  ),
+        child: SingleChildScrollView(
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Tu nueva contraseña debe tener mínimo 8 caracteres e incluir letras y números.',
+                  style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 18),
+                if (_error != null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      _error!,
+                      style: TextStyle(color: Colors.red.shade800, fontSize: 12),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                TextFormField(
+                  controller: _actualCtrl,
+                  obscureText: _ocultarActual,
+                  decoration: InputDecoration(
+                    labelText: 'Contraseña actual',
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    suffixIcon: IconButton(
+                      icon: Icon(_ocultarActual
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined),
+                      onPressed: () =>
+                          setState(() => _ocultarActual = !_ocultarActual),
+                    ),
+                  ),
+                  validator: (v) =>
+                      (v == null || v.isEmpty) ? 'Ingresa tu clave actual' : null,
+                ),
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: _nuevaCtrl,
+                  obscureText: _ocultarNueva,
+                  decoration: InputDecoration(
+                    labelText: 'Nueva contraseña',
+                    prefixIcon: const Icon(Icons.key_outlined),
+                    suffixIcon: IconButton(
+                      icon: Icon(_ocultarNueva
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined),
+                      onPressed: () =>
+                          setState(() => _ocultarNueva = !_ocultarNueva),
+                    ),
+                  ),
+                  validator: (v) {
+                    if (v == null || v.length < 8) {
+                      return 'Mínimo 8 caracteres';
+                    }
+                    final tieneLetra = RegExp(r'[A-Za-z]').hasMatch(v);
+                    final tieneNumero = RegExp(r'\d').hasMatch(v);
+                    if (!tieneLetra || !tieneNumero) {
+                      return 'Incluye letras y números';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: _confirmarCtrl,
+                  obscureText: _ocultarNueva,
+                  decoration: const InputDecoration(
+                    labelText: 'Confirmar nueva contraseña',
+                    prefixIcon: Icon(Icons.verified_user_outlined),
+                  ),
+                  validator: (v) {
+                    if (v != _nuevaCtrl.text) {
+                      return 'Las contraseñas no coinciden';
+                    }
+                    return null;
+                  },
+                ),
               ],
-              TextFormField(
-                controller: _actualCtrl,
-                obscureText: _ocultarActual,
-                decoration: InputDecoration(
-                  labelText: 'Contraseña actual',
-                  prefixIcon: const Icon(Icons.lock_outline),
-                  suffixIcon: IconButton(
-                    icon: Icon(_ocultarActual
-                        ? Icons.visibility_outlined
-                        : Icons.visibility_off_outlined),
-                    onPressed: () =>
-                        setState(() => _ocultarActual = !_ocultarActual),
-                  ),
-                ),
-                validator: (v) =>
-                    (v == null || v.isEmpty) ? 'Ingresa tu clave actual' : null,
-              ),
-              const SizedBox(height: 14),
-              TextFormField(
-                controller: _nuevaCtrl,
-                obscureText: _ocultarNueva,
-                decoration: InputDecoration(
-                  labelText: 'Nueva contraseña',
-                  prefixIcon: const Icon(Icons.key_outlined),
-                  suffixIcon: IconButton(
-                    icon: Icon(_ocultarNueva
-                        ? Icons.visibility_outlined
-                        : Icons.visibility_off_outlined),
-                    onPressed: () =>
-                        setState(() => _ocultarNueva = !_ocultarNueva),
-                  ),
-                ),
-                validator: (v) {
-                  if (v == null || v.length < 8) {
-                    return 'Mínimo 8 caracteres';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 14),
-              TextFormField(
-                controller: _confirmarCtrl,
-                obscureText: _ocultarNueva,
-                decoration: const InputDecoration(
-                  labelText: 'Confirmar nueva contraseña',
-                  prefixIcon: Icon(Icons.verified_user_outlined),
-                ),
-                validator: (v) {
-                  if (v != _nuevaCtrl.text) {
-                    return 'Las contraseñas no coinciden';
-                  }
-                  return null;
-                },
-              ),
-            ],
+            ),
           ),
         ),
       ),

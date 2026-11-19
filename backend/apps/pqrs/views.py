@@ -57,24 +57,33 @@ PQR_RELACIONES = ("tipo", "estado", "solicitante", "inmueble", "responsable")
 
 
 def pqrs_accesibles_para(usuario):
-    """Aplica visibilidad según el rol del usuario."""
+    """Aplica visibilidad según los permisos efectivos del usuario."""
     queryset = PQR.objects.select_related("estado")
-    roles = set(usuario.codigos_roles())
 
     # 1. Administrador: ve absolutamente todas las PQRs
-    if "ADMIN" in roles:
+    if usuario.tiene_permiso("usuarios.gestionar"):
         return queryset
 
-    # 2. Responsable PQR: ve las que le asignaron Y las que él mismo radicó
-    if "RESPONSABLE_PQR" in roles:
+    # 2. Gestor/Responsable PQR: ve las asignadas a él Y las que él mismo radicó
+    if usuario.tiene_permiso("pqr.gestionar"):
         return queryset.filter(Q(responsable=usuario) | Q(solicitante=usuario))
 
-    # 3. Residente: ve únicamente las PQRs donde él es el solicitante
-    if "RESIDENTE" in roles:
+    # 3. Residente (o cualquier rol con permiso de radicar): ve únicamente las propias
+    if usuario.tiene_permiso("pqr.radicar"):
         return queryset.filter(solicitante=usuario)
 
-    # 4. Caso de seguridad: si no tiene ninguno de esos roles, no ve ninguna PQR
+    # 4. Caso de seguridad: sin permisos de PQR, no ve ninguna solicitud
     return queryset.none()
+
+
+def es_gestor_de_pqr(usuario, pqr):
+    """True si es administrador o el responsable asignado a esa PQR puntual."""
+    if usuario.tiene_permiso("usuarios.gestionar"):
+        return True
+    return (
+        usuario.tiene_permiso("pqr.gestionar")
+        and pqr.responsable_id == usuario.pk
+    )
 
 
 def registrar_evento_pqr(pqr, usuario, comentario):
@@ -181,12 +190,13 @@ class PQRRetrieveUpdateView(generics.RetrieveUpdateAPIView):
                 {"detail": "Esta solicitud está cerrada o anulada y no admite modificaciones."}
             )
 
-        # Regla de negocio: un residente solo puede editar si sigue en estado RECIBIDA
-        if not self.request.user.tiene_permiso("pqr.gestionar") and pqr.estado.codigo != "RECIBIDA":
+        # Regla de negocio: un solicitante (o responsable no asignado) solo edita en RECIBIDA
+        puede_gestionar_esta = es_gestor_de_pqr(self.request.user, pqr)
+        if not puede_gestionar_esta and pqr.estado.codigo != "RECIBIDA":
             raise exceptions.PermissionDenied("Solo puedes editar una PQR mientras esté en estado 'Recibida'.")
 
         datos = dict(serializer.validated_data)
-        if not self.request.user.tiene_permiso("pqr.gestionar"):
+        if not puede_gestionar_esta:
             # La prioridad se ignora al guardar; tampoco debe figurar como modificada.
             datos.pop("prioridad", None)
 
@@ -245,7 +255,8 @@ class PQRTransicionEstadoView(APIView):
         serializer = PQRTransicionEstadoSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         estado_destino_codigo = serializer.validated_data["estado_codigo"]
-        motivo = str(request.data.get("motivo", "")).strip()
+        raw_motivo = request.data.get("motivo", "")
+        motivo = raw_motivo.strip() if isinstance(raw_motivo, str) else ""
         if estado_destino_codigo == "ANULADA" and len(motivo) < 5:
             raise exceptions.ValidationError(
                 {"detail": "Debes indicar un motivo de anulación (mínimo 5 caracteres)."}
@@ -440,6 +451,10 @@ class PQRAsignarResponsableView(APIView):
                 PQR.objects.select_for_update(),
                 pk=pk,
             )
+            if pqr.estado.codigo in {"CERRADA", "ANULADA"}:
+                raise exceptions.ValidationError(
+                    {"detail": "Esta solicitud está cerrada o anulada y no admite cambios de responsable."}
+                )
             pqr.responsable = responsable
             if pqr.estado.codigo in {"RECIBIDA", "EN_REVISION"}:
                 estado_proceso = Estado.objects.filter(
@@ -482,7 +497,11 @@ class PQRAdjuntoListCreateView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         """Asocia el archivo a la PQR y al usuario autenticado."""
         pqr = self._obtener_pqr()
-        es_gestor = self.request.user.tiene_permiso("pqr.gestionar")
+        if pqr.estado.codigo in {"CERRADA", "ANULADA"}:
+            raise exceptions.ValidationError(
+                {"detail": "Esta solicitud está cerrada o anulada y no admite cambios en sus adjuntos."}
+            )
+        es_gestor = es_gestor_de_pqr(self.request.user, pqr)
 
         # Conserva la regla actual del módulo: el residente solo puede
         # modificar una PQR mientras siga en estado RECIBIDA.
@@ -528,13 +547,17 @@ class PQRAdjuntoRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView)
         return PQRAdjunto.objects.filter(pqr=pqr)
 
     def _validar_pqr_modificable(self):
-        """Aplica al reemplazo y borrado la regla de estado para residentes."""
+        """Aplica al reemplazo y borrado el bloqueo de estados finales y la regla para residentes."""
         pqr = get_object_or_404(
             pqrs_accesibles_para(self.request.user),
             pk=self.kwargs["pqr_id"],
         )
+        if pqr.estado.codigo in {"CERRADA", "ANULADA"}:
+            raise exceptions.ValidationError(
+                {"detail": "Esta solicitud está cerrada o anulada y no admite cambios en sus adjuntos."}
+            )
         if (
-            not self.request.user.tiene_permiso("pqr.gestionar")
+            not es_gestor_de_pqr(self.request.user, pqr)
             and pqr.estado.codigo != "RECIBIDA"
         ):
             raise exceptions.PermissionDenied(

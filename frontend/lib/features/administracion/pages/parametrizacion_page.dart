@@ -169,16 +169,22 @@ class _ParametrizacionPageState extends State<ParametrizacionPage> {
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  'NIT: ${c['nit'] ?? 'No registrado'} · '
-                                  '${c['ciudad'] ?? 'Ciudad'} · '
-                                  '${c['direccion'] ?? 'Sin dirección'} · '
+                                  'NIT: ${(c['nit']?.toString().trim().isNotEmpty == true) ? c['nit'] : 'No registrado'} · '
+                                  '${(c['ciudad']?.toString().trim().isNotEmpty == true) ? c['ciudad'] : 'Sin ciudad'} · '
+                                  '${(c['direccion']?.toString().trim().isNotEmpty == true) ? c['direccion'] : 'Sin dirección'} · '
                                   '${c['total_inmuebles'] ?? 0} inmuebles',
                                   style: const TextStyle(
                                       color: Colors.black54, fontSize: 13),
                                 ),
-                                if (c['email'] != null || c['telefono'] != null)
+                                if ((c['email']?.toString().trim().isNotEmpty ==
+                                        true) ||
+                                    (c['telefono']
+                                            ?.toString()
+                                            .trim()
+                                            .isNotEmpty ==
+                                        true))
                                   Text(
-                                    'Contacto: ${c['email'] ?? '-'} · Tel: ${c['telefono'] ?? '-'}',
+                                    'Contacto: ${(c['email']?.toString().trim().isNotEmpty == true) ? c['email'] : '-'} · Tel: ${(c['telefono']?.toString().trim().isNotEmpty == true) ? c['telefono'] : '-'}',
                                     style: const TextStyle(
                                         color: Colors.black54, fontSize: 12),
                                   ),
@@ -236,7 +242,9 @@ class _CopropiedadFormDialogState extends State<_CopropiedadFormDialog> {
     _nitCtrl = TextEditingController(text: c?['nit']?.toString() ?? '');
     _dirCtrl = TextEditingController(text: c?['direccion']?.toString() ?? '');
     _ciudadCtrl = TextEditingController(
-        text: c?['ciudad']?.toString() ?? 'San José de Cúcuta');
+        text: c == null
+            ? 'San José de Cúcuta'
+            : (c['ciudad']?.toString() ?? ''));
     _telCtrl = TextEditingController(text: c?['telefono']?.toString() ?? '');
     _emailCtrl = TextEditingController(text: c?['email']?.toString() ?? '');
     _descCtrl =
@@ -267,11 +275,16 @@ class _CopropiedadFormDialogState extends State<_CopropiedadFormDialog> {
         datos: {
           'nombre': _nombreCtrl.text.trim(),
           'nit': _nitCtrl.text.trim().isEmpty ? null : _nitCtrl.text.trim(),
-          'direccion': _dirCtrl.text.trim(),
-          'ciudad': _ciudadCtrl.text.trim(),
-          'telefono': _telCtrl.text.trim(),
-          'email': _emailCtrl.text.trim(),
-          'descripcion': _descCtrl.text.trim(),
+          'direccion':
+              _dirCtrl.text.trim().isEmpty ? null : _dirCtrl.text.trim(),
+          'ciudad':
+              _ciudadCtrl.text.trim().isEmpty ? null : _ciudadCtrl.text.trim(),
+          'telefono':
+              _telCtrl.text.trim().isEmpty ? null : _telCtrl.text.trim(),
+          'email':
+              _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
+          'descripcion':
+              _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
         },
       );
       if (!mounted) return;
@@ -361,10 +374,18 @@ class _CopropiedadFormDialogState extends State<_CopropiedadFormDialog> {
                     Expanded(
                       child: TextFormField(
                         controller: _emailCtrl,
+                        keyboardType: TextInputType.emailAddress,
                         decoration: const InputDecoration(
                           labelText: 'Correo electrónico',
                           border: OutlineInputBorder(),
                         ),
+                        validator: (v) {
+                          final txt = v?.trim() ?? '';
+                          if (txt.isEmpty) return null;
+                          final ok = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+                              .hasMatch(txt);
+                          return ok ? null : 'Correo inválido';
+                        },
                       ),
                     ),
                   ],
