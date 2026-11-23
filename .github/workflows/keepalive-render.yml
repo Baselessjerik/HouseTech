@@ -1,0 +1,19 @@
+name: Mantener activo el backend en Render
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping al healthcheck del backend
+        run: |
+          API_URL="${{ vars.API_BASE_URL }}"
+          if [ -z "$API_URL" ]; then
+            API_URL="https://housetech-api.onrender.com/api/v1"
+          fi
+          curl -fsS --max-time 60 "${API_URL%/}/health/"
+          echo ""
