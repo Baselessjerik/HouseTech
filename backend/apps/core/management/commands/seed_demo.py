@@ -31,8 +31,8 @@ class Command(BaseCommand):
         parser.add_argument("--password", default="HouseTech2026!", help="Clave de los usuarios demo")
 
     def handle(self, *args, **opciones):
-        if not settings.DEBUG:
-            raise CommandError("seed_demo solo se permite con DEBUG=True.")
+        if not settings.DEBUG and not getattr(settings, "ALLOW_DEMO_SEED", False):
+            raise CommandError("seed_demo solo se permite con DEBUG=True o ALLOW_DEMO_SEED=True.")
 
         with transaction.atomic():
             copropiedad, _ = Copropiedad.objects.get_or_create(

@@ -26,8 +26,8 @@ class Command(BaseCommand):
     )
 
     def handle(self, *args, **opciones):
-        if not settings.DEBUG:
-            raise CommandError("seed_modulo2 solo se permite con DEBUG=True.")
+        if not settings.DEBUG and not getattr(settings, "ALLOW_DEMO_SEED", False):
+            raise CommandError("seed_modulo2 solo se permite con DEBUG=True o ALLOW_DEMO_SEED=True.")
         admin = Usuario.objects.filter(username__iexact="admin").first()
         copropiedad = Copropiedad.objects.order_by("id").first()
         if admin is None or copropiedad is None:

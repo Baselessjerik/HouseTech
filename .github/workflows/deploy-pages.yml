@@ -1,0 +1,84 @@
+name: Desplegar HouseTech Web en GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/deploy-pages.yml"
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: "URL base de la API (ej. https://housetech-api.onrender.com/api/v1). Si se deja vacío usa la variable de repositorio API_BASE_URL."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Instalar dependencias Flutter
+        working-directory: frontend
+        run: flutter pub get
+
+      - name: Resolver URL del backend
+        id: api
+        shell: bash
+        run: |
+          API_URL="${{ inputs.api_base_url }}"
+          if [ -z "$API_URL" ]; then
+            API_URL="${{ vars.API_BASE_URL }}"
+          fi
+          if [ -z "$API_URL" ]; then
+            echo "::warning::La variable de repositorio API_BASE_URL no está definida. Se usará http://127.0.0.1:8000/api/v1."
+            API_URL="http://127.0.0.1:8000/api/v1"
+          fi
+          API_URL="${API_URL%/}"
+          echo "url=$API_URL" >> "$GITHUB_OUTPUT"
+          echo "Compilando Flutter Web apuntando a: $API_URL"
+
+      - name: Compilar Flutter Web para GitHub Pages
+        working-directory: frontend
+        run: |
+          flutter build web --release --no-wasm-dry-run \
+            --base-href "/HouseTech/" \
+            --dart-define=API_BASE_URL="${{ steps.api.outputs.url }}"
+          cp build/web/index.html build/web/404.html
+
+      - name: Configurar GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Subir artefacto de Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/build/web
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Publicar en GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
